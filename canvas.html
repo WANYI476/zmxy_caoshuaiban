@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>造梦西游 · 字符版</title>
+<style>
+  html,body {
+    margin:0; padding:0; height:100%;
+    background:#000; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Consolas','Courier New',monospace;
+  }
+  #screen {
+    margin:0;
+    font-family:'Consolas','Courier New',monospace;
+    font-weight:bold;
+    line-height:1.05;
+    letter-spacing:0.5px;
+    white-space:pre;
+    background:#000;
+    padding:6px;
+    border-radius:4px;
+    box-shadow:0 0 60px rgba(120,80,220,.4);
+  }
+  .c0 { color:#cccccc; }
+  .c1 { color:#ff5555; }
+  .c2 { color:#55ff55; }
+  .c3 { color:#ffff55; }
+  .c4 { color:#6666ff; }
+  .c5 { color:#ff55ff; }
+  .c6 { color:#55ffff; }
+  .c7 { color:#ffffff; }
+  .c8 { color:#888888; }
+  .c9 { color:#ffaa00; }
+</style>
+</head>
+<body>
+<pre id="screen"></pre>
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+ *                        常量
+ * ============================================================ */
+var SW = 100, SH = 28;
+var WORLD_W = 220;
+var GROUND_Y = 22;
+
+var GRAV = 0.55, JUMPV = -3.60, MAXFALL = 1.80, MOVESPD = 1.00;
+var MAXENEMY = 32, MAXPROJ = 96;
+
+var STAGE0_LEN = 7, STAGE1_LEN = 21, STAGE2_LEN = 14;
+var TOTAL_LEVEL = STAGE0_LEN + STAGE1_LEN + STAGE2_LEN;
+
+var ST_TITLE=0, ST_CHARSEL=1, ST_STAGESEL=2, ST_PLAY=3,
+    ST_BUFF=4, ST_OVER=5, ST_STAGECLEAR=6, ST_ALLWIN=7;
+
+var K_LEFT=0, K_RIGHT=1, K_JUMP=2, K_ATK=3, K_SKILL=4, K_U=5, K_I=6, K_QUIT=7;
+
+var CHAR_WUKONG=0, CHAR_SHAWUJING=1, CHAR_BAJIE=2;
+var CHARGE_MAX = 60;
+var SAVE_KEY = 'zmxy_char_save';
+
+var STAGE_BASE = [0, 7, 28];
+var STAGE_LEN = [STAGE0_LEN, STAGE1_LEN, STAGE2_LEN];
+
+/* ============================================================
+ *                        缓冲
+ * ============================================================ */
+var buf = [];
+var col = [];
+for (var iy=0; iy<SH; iy++){
+    buf.push(new Array(SW).fill(' '));
+    col.push(new Array(SW).fill(0));
+}
+
+function putc2(x, y, c, color) {
+    if (x < 0 || x >= SW || y < 0 || y >= SH) return;
+    buf[y][x] = c;
+    col[y][x] = color;
+}
+function drawText(x, y, s, color) {
+    for (var i=0; i<s.length; i++) putc2(x+i, y, s[i], color);
+}
+
+var screenEl = document.getElementById('screen');
+
+function present() {
+    var html = '';
+    var lastCol = -1;
+    for (var y=0; y<SH; y++){
+        for (var x=0; x<SW; x++){
+            var c = col[y][x];
+            if (c !== lastCol){
+                if (lastCol >= 0) html += '</span>';
+                html += '<span class="c' + c + '">';
+                lastCol = c;
+            }
+            var ch = buf[y][x];
+            if (ch === '<') html += '&lt;';
+            else if (ch === '>') html += '&gt;';
+            else if (ch === '&') html += '&amp;';
+            else html += ch;
+        }
+        html += '\n';
+    }
+    if (lastCol >= 0) html += '</span>';
+    screenEl.innerHTML = html;
+}
+
+/* ============================================================
+ *                        输入
+ * ============================================================ */
+var keysDown = {};
+window.addEventListener('keydown', function(e){
+    keysDown[e.code] = true;
+    if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].indexOf(e.code) >= 0) e.preventDefault();
+});
+window.addEventListener('keyup', function(e){
+    keysDown[e.code] = false;
+});
+window.addEventListener('blur', function(){ keysDown = {}; });
+
+var keyCur = [false,false,false,false,false,false,false,false];
+var keyPrev = [false,false,false,false,false,false,false,false];
+
+function pollKeys() {
+    for (var i=0;i<8;i++) keyPrev[i] = keyCur[i];
+    keyCur[K_LEFT]  = !!(keysDown['KeyA'] || keysDown['ArrowLeft']);
+    keyCur[K_RIGHT] = !!(keysDown['KeyD'] || keysDown['ArrowRight']);
+    keyCur[K_JUMP]  = !!(keysDown['KeyW'] || keysDown['ArrowUp'] || keysDown['Space']);
+    keyCur[K_ATK]   = !!keysDown['KeyJ'];
+    keyCur[K_SKILL] = !!keysDown['KeyK'];
+    keyCur[K_U]     = !!keysDown['KeyU'];
+    keyCur[K_I]     = !!keysDown['KeyI'];
+    keyCur[K_QUIT]  = !!keysDown['Escape'];
+}
+function keyEdge(k){ return keyCur[k] && !keyPrev[k]; }
+
+/* ============================================================
+ *                        数据
+ * ============================================================ */
+function createPlayer() {
+    return {
+        x:0, y:0, vx:0, vy:0, kbvx:0,
+        hp:0, maxhp:0, mp:0, maxmp:0,
+        onGround:0, facing:1,
+        atkAnim:0, atkCd:0, hurtTimer:0, skillCd:0,
+        comboStep:0, comboTimer:0,
+        dashTimer:0, dashVx:0, skillUCD:0,
+        skillICD:0, skillIFlash:0,
+        invulnTimer:0, score:0, charType:0,
+        chargeTimer:0, chargeFlash:0,
+        buffCount:0, atkBonus:0,
+        dmgMul:1, moveMul:1, cdMul:1,
+        dmgReduce:1, projMul:1, atkSpdMul:1,
+        critChance:0, lifesteal:0,
+        hpRegen:0, mpRegen:0, pierceBonus:0
+    };
+}
+
+var pl = createPlayer();
+var enemies = [];
+var projs = [];
+var nextProjId = 1;
+
+var camX = 0;
+var level = 0;
+var currentStage = 0;
+var gameState = ST_TITLE;
+var frame = 0;
+var levelCleared = 0;
+var levelClearTimer = 0;
+var dashId = 0;
+
+var buffOptions = [0,0,0];
+var buffSel = 0, buffDelay = 0;
+var charSel = 0, selectedChar = 0, stageSel = 0;
+
+var stageCleared = [0,0,0];
+var maxUnlockedStage = 0;
+var bonusHP = 0, bonusMP = 0, bonusATK = 0;
+
+/* ============================================================
+ *                        存档
+ * ============================================================ */
+function loadProgress() {
+    try {
+        var s = localStorage.getItem(SAVE_KEY);
+        if (!s) return;
+        var d = JSON.parse(s);
+        if (d.stageCleared) stageCleared = d.stageCleared;
+        if (typeof d.maxUnlockedStage === 'number') maxUnlockedStage = d.maxUnlockedStage;
+        if (typeof d.bonusHP === 'number') bonusHP = d.bonusHP;
+        if (typeof d.bonusMP === 'number') bonusMP = d.bonusMP;
+        if (typeof d.bonusATK === 'number') bonusATK = d.bonusATK;
+    } catch(e){}
+}
+function saveProgress() {
+    try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({
+            stageCleared: stageCleared,
+            maxUnlockedStage: maxUnlockedStage,
+            bonusHP: bonusHP,
+            bonusMP: bonusMP,
+            bonusATK: bonusATK
+        }));
+    } catch(e){}
+}
+
+/* ============================================================
+ *                        增益
+ * ============================================================ */
+var BUFFS = [
+    { name:"IRON BONE", desc:"MAX HP +25" },
+    { name:"SPIRIT",    desc:"MAX MP +25" },
+    { name:"BRUTE",     desc:"ATK +6" },
+    { name:"BATTLE",    desc:"ALL DMG +20%" },
+    { name:"WIND",      desc:"MOVE SPD +20%" },
+    { name:"GALE",      desc:"COOLDOWN -20%" },
+    { name:"REGEN",     desc:"HP REGEN 1/s" },
+    { name:"MEDITATE",  desc:"MP REGEN x2" },
+    { name:"TOUGH",     desc:"DMG TAKEN -25%" },
+    { name:"SHARP EYE", desc:"25% CRIT (x2)" },
+    { name:"VAMPIRE",   desc:"LIFESTEAL 15%" },
+    { name:"FLAME",     desc:"PROJ DMG +50%" },
+    { name:"PIERCE",    desc:"PROJ PIERCE +1" },
+    { name:"RAPID",     desc:"ATK SPEED +25%" }
+];
+var BUFF_COUNT = BUFFS.length;
+
+function applyBuff(id) {
+    switch(id) {
+        case 0: pl.maxhp += 25; pl.hp += 25; if (pl.hp > pl.maxhp) pl.hp = pl.maxhp; break;
+        case 1: pl.maxmp += 25; pl.mp = pl.maxmp; break;
+        case 2: pl.atkBonus += 6; break;
+        case 3: pl.dmgMul *= 1.20; break;
+        case 4: pl.moveMul *= 1.20; if (pl.moveMul > 2) pl.moveMul = 2; break;
+        case 5: pl.cdMul *= 0.80; if (pl.cdMul < 0.30) pl.cdMul = 0.30; break;
+        case 6:
+            if (pl.hpRegen === 0) pl.hpRegen = 30;
+            else { pl.hpRegen = Math.floor(pl.hpRegen * 2 / 3); if (pl.hpRegen < 8) pl.hpRegen = 8; }
+            break;
+        case 7:
+            if (pl.mpRegen === 0) pl.mpRegen = 11;
+            else { pl.mpRegen = Math.floor(pl.mpRegen * 2 / 3); if (pl.mpRegen < 5) pl.mpRegen = 5; }
+            break;
+        case 8: pl.dmgReduce *= 0.75; if (pl.dmgReduce < 0.25) pl.dmgReduce = 0.25; break;
+        case 9: pl.critChance += 25; if (pl.critChance > 100) pl.critChance = 100; break;
+        case 10: pl.lifesteal += 15; if (pl.lifesteal > 100) pl.lifesteal = 100; break;
+        case 11: pl.projMul *= 1.50; break;
+        case 12: pl.pierceBonus += 1; break;
+        case 13: pl.atkSpdMul *= 0.80; if (pl.atkSpdMul < 0.35) pl.atkSpdMul = 0.35; break;
+    }
+    pl.buffCount++;
+}
+
+function prepareBuffSelection() {
+    var pool = [];
+    for (var i=0;i<BUFF_COUNT;i++) pool.push(i);
+    for (var j=BUFF_COUNT-1;j>0;j--){
+        var k = Math.floor(Math.random()*(j+1));
+        var t = pool[j]; pool[j] = pool[k]; pool[k] = t;
+    }
+    buffOptions[0] = pool[0]; buffOptions[1] = pool[1]; buffOptions[2] = pool[2];
+    buffSel = 0; buffDelay = 12;
+}
+
+function updateBuff() {
+    if (buffDelay > 0) { buffDelay--; return; }
+    if (keyEdge(K_LEFT) && buffSel > 0) buffSel--;
+    if (keyEdge(K_RIGHT) && buffSel < 2) buffSel++;
+    if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
+        applyBuff(buffOptions[buffSel]);
+        pl.x = 20; pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1;
+        pl.hp += 35; if (pl.hp > pl.maxhp) pl.hp = pl.maxhp;
+        pl.mp = pl.maxmp;
+        pl.comboStep = 0; pl.comboTimer = 0;
+        pl.kbvx = 0; pl.hurtTimer = 0;
+        pl.invulnTimer = 30;
+        pl.chargeTimer = 0;
+        camX = 0;
+        initLevel(level + 1);
+        gameState = ST_PLAY;
+    }
+}
+
+/* ============================================================
+ *                        敌人 / 关卡
+ * ============================================================ */
+function spawnEnemy(type, x, scale) {
+    if (enemies.length >= MAXENEMY) return;
+    var hp, dmg, spd;
+    switch(type) {
+        case 0: hp=30;  dmg=5;  spd=0.60; break;
+        case 1: hp=70;  dmg=9;  spd=0.45; break;
+        case 2: hp=260; dmg=14; spd=0.50; break;
+        case 3: hp=340; dmg=16; spd=0.55; break;
+        case 4: hp=420; dmg=18; spd=0.50; break;
+        case 5: hp=560; dmg=22; spd=0.55; break;
+        case 6: hp=360; dmg=16; spd=0.55; break;
+        case 7: hp=360; dmg=16; spd=0.55; break;
+        case 8: hp=600; dmg=20; spd=0.50; break;
+        default: hp=30; dmg=5; spd=0.60; break;
+    }
+    var e = {
+        x: x, y: GROUND_Y, vx: 0,
+        hp: Math.floor(hp * scale),
+        maxhp: Math.floor(hp * scale),
+        dmg: Math.floor(dmg * scale),
+        speed: spd,
+        type: type,
+        facing: -1, alive: 1,
+        atkAnim: 0, atkCd: 0, hurtTimer: 0, stunTimer: 0,
+        lastDashHit: 0, lastProjHit: 0,
+        barrageCd: type >= 3 ? (70 + Math.floor(Math.random()*50)) : (130 + Math.floor(Math.random()*50)),
+        barragePattern: 0,
+        phase: 0, phase2Triggered: 0
+    };
+    enemies.push(e);
+}
+
+function initLevel(lv) {
+    enemies = [];
+    projs = [];
+    level = lv;
+
+    if (lv < STAGE_BASE[1]) currentStage = 0;
+    else if (lv < STAGE_BASE[2]) currentStage = 1;
+    else currentStage = 2;
+
+    var pos = lv - STAGE_BASE[currentStage];
+    var sc = 1.0 + lv * 0.08;
+    var i, n;
+
+    if (currentStage === 0) {
+        if (pos === STAGE0_LEN - 1) {
+            spawnEnemy(2, 140, 1);
+            spawnEnemy(0, 60, sc); spawnEnemy(1, 100, sc);
+        } else {
+            n = 2 + Math.floor(lv/3); if (n > 5) n = 5;
+            for (i=0;i<n;i++) spawnEnemy(i % 4 === 3 ? 1 : 0, 40 + i*32, sc);
+        }
+    } else if (currentStage === 1) {
+        if (pos === 6) {
+            spawnEnemy(3, 140, 1);
+            spawnEnemy(0, 60, sc); spawnEnemy(1, 100, sc);
+        } else if (pos === 13) {
+            spawnEnemy(4, 140, 1);
+            spawnEnemy(1, 60, sc); spawnEnemy(1, 100, sc);
+        } else if (pos === 20) {
+            spawnEnemy(5, 150, 1);
+            spawnEnemy(1, 60, sc); spawnEnemy(1, 100, sc); spawnEnemy(1, 185, sc);
+        } else {
+            n = 3 + Math.floor(pos/5); if (n > 6) n = 6;
+            for (i=0;i<n;i++) spawnEnemy(i % 3 === 0 ? 0 : 1, 40 + i*28, sc);
+        }
+    } else {
+        if (pos === 6) {
+            spawnEnemy(6, 110, 1); spawnEnemy(7, 170, 1);
+        } else if (pos === 13) {
+            spawnEnemy(8, 140, 1);
+        } else {
+            n = 3 + Math.floor(pos/4); if (n > 6) n = 6;
+            for (i=0;i<n;i++) spawnEnemy(i % 4 === 0 ? 0 : 1, 40 + i*28, sc);
+        }
+    }
+
+    levelCleared = 0;
+    levelClearTimer = 0;
+}
+
+function enterStage(stage) {
+    pl = createPlayer();
+    pl.maxhp = 100 + bonusHP;
+    pl.hp = pl.maxhp;
+    pl.maxmp = 100 + bonusMP;
+    pl.mp = pl.maxmp;
+    pl.x = 20; pl.y = GROUND_Y;
+    pl.facing = 1; pl.onGround = 1;
+    pl.score = 0;
+    pl.charType = selectedChar;
+    pl.atkBonus = bonusATK;
+    pl.dmgMul = 1; pl.moveMul = 1; pl.cdMul = 1;
+    pl.dmgReduce = 1; pl.projMul = 1; pl.atkSpdMul = 1;
+    camX = 0; dashId = 0;
+    currentStage = stage;
+    initLevel(STAGE_BASE[stage]);
+    gameState = ST_PLAY;
+}
+
+/* ============================================================
+ *                        弹幕
+ * ============================================================ */
+function spawnProjRaw(x, y, vx, vy, dmg, owner, pierce, color, shape) {
+    for (var i=0;i<MAXPROJ;i++) {
+        if (i >= projs.length || !projs[i].alive) {
+            var p = {
+                x:x, y:y, vx:vx, vy:vy,
+                dmg:dmg, life:150,
+                owner:owner, pierce:pierce,
+                id: nextProjId++,
+                color: color, shape: shape,
+                boomerang: 0, returning: 0,
+                ox: x, oy: y,
+                alive: 1
+            };
+            if (i < projs.length) projs[i] = p;
+            else projs.push(p);
+            return i;
+        }
+    }
+    return -1;
+}
+function spawnProj(x, y, vx, vy, dmg, owner, pierce, color, shape) {
+    spawnProjRaw(x, y, vx, vy, dmg, owner, pierce, color, shape);
+}
+
+/* ============================================================
+ *                        伤害
+ * ============================================================ */
+function damageEnemy(e, dmg, dir, kb) {
+    if (!e.alive) return;
+    var final = dmg, crit = false;
+    if (pl.critChance > 0 && Math.random()*100 < pl.critChance) {
+        final *= 2; crit = true;
+    }
+    final = Math.floor(final);
+    if (final < 1) final = 1;
+    e.hp -= final;
+    e.hurtTimer = crit ? 16 : 10;
+    e.vx = dir * kb * (crit ? 1.3 : 1);
+
+    if (pl.lifesteal > 0) {
+        var heal = Math.floor(final * pl.lifesteal / 100);
+        if (heal < 1) heal = 1;
+        pl.hp += heal;
+        if (pl.hp > pl.maxhp) pl.hp = pl.maxhp;
+    }
+    if (e.hp <= 0) {
+        e.hp = 0; e.alive = 0;
+        pl.score += (e.type >= 2) ? 1500 : (e.type === 1 ? 300 : 100);
+        pl.mp += 12;
+        if (pl.mp > pl.maxmp) pl.mp = pl.maxmp;
+    }
+}
+
+/* ============================================================
+ *                        普攻
+ * ============================================================ */
+function playerAttack() {
+    if (pl.charType === CHAR_WUKONG) attackWukong();
+    else if (pl.charType === CHAR_SHAWUJING) attackShawujing();
+    else attackBajie();
+}
+
+function attackWukong() {
+    if (pl.comboTimer > 0 && pl.comboStep >= 1 && pl.comboStep < 3) pl.comboStep++;
+    else pl.comboStep = 1;
+
+    var base, range, kb, anim, cd;
+    if (pl.comboStep === 1) { base=14; range=4.5; kb=1.8; anim=6; cd=9; }
+    else if (pl.comboStep === 2) { base=24; range=5.5; kb=2.8; anim=8; cd=10; }
+    else { base=46; range=7.0; kb=5.5; anim=13; cd=17; }
+
+    pl.atkCd = Math.floor(cd * pl.cdMul * pl.atkSpdMul); if (pl.atkCd < 2) pl.atkCd = 2;
+    pl.atkAnim = anim;
+    pl.comboTimer = 26;
+    var dmg = Math.floor((base + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
+
+    for (var i=0;i<enemies.length;i++) {
+        var e = enemies[i];
+        if (!e.alive) continue;
+        var dx = e.x - pl.x;
+        if (Math.abs(dx) > 0.4 && dx * pl.facing < 0) continue;
+        if (Math.abs(dx) > range) continue;
+        if (Math.abs(e.y - pl.y) > 4.0) continue;
+        damageEnemy(e, dmg, pl.facing, kb);
+    }
+}
+
+function attackShawujing() {
+    if (pl.comboTimer > 0 && pl.comboStep >= 1 && pl.comboStep < 3) pl.comboStep++;
+    else pl.comboStep = 1;
+
+    var dmg, anim, cd, num = 1;
+    if (pl.comboStep === 1) { dmg=12; anim=6; cd=9; }
+    else if (pl.comboStep === 2) { dmg=20; anim=7; cd=10; }
+    else { dmg=30; anim=10; cd=16; num=2; }
+
+    pl.atkCd = Math.floor(cd * pl.cdMul * pl.atkSpdMul); if (pl.atkCd < 2) pl.atkCd = 2;
+    pl.atkAnim = anim;
+    pl.comboTimer = 26;
+    var total = Math.floor((dmg + pl.atkBonus) * pl.dmgMul * pl.projMul); if (total < 1) total = 1;
+
+    for (var k=0;k<num;k++) {
+        var dy = (k === 0) ? 0 : ((k === 1) ? -0.5 : 0.5);
+        spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5 + dy*0.4,
+                  pl.facing*4.0, dy*0.3,
+                  total, 0, pl.pierceBonus, 3, '>');
+    }
+}
+
+function attackBajie() {
+    if (pl.comboTimer > 0 && pl.comboStep >= 1 && pl.comboStep < 3) pl.comboStep++;
+    else pl.comboStep = 1;
+
+    var base, range, kb, anim, cd, spin = false;
+    if (pl.comboStep === 1) { base=18; range=4.5; kb=2.2; anim=8; cd=14; }
+    else if (pl.comboStep === 2) { base=30; range=5.5; kb=3.2; anim=10; cd=15; }
+    else { base=55; range=9.0; kb=7.0; anim=18; cd=26; spin = true; }
+
+    pl.atkCd = Math.floor(cd * pl.cdMul * pl.atkSpdMul); if (pl.atkCd < 2) pl.atkCd = 2;
+    pl.atkAnim = anim;
+    pl.comboTimer = 28;
+    var dmg = Math.floor((base + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
+
+    for (var i=0;i<enemies.length;i++) {
+        var e = enemies[i];
+        if (!e.alive) continue;
+        var dx = e.x - pl.x;
+        if (Math.abs(e.y - pl.y) > 4.0) continue;
+        if (spin) {
+            if (Math.abs(dx) > range) continue;
+        } else {
+            if (Math.abs(dx) > 0.4 && dx * pl.facing < 0) continue;
+            if (Math.abs(dx) > range) continue;
+        }
+        damageEnemy(e, dmg, dx > 0 ? 1 : -1, kb);
+    }
+}
+
+/* ============================================================
+ *                        技能
+ * ============================================================ */
+function skillKWukong() {
+    var dmg = Math.floor((22 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
+    for (var k=0;k<3;k++) {
+        var vy = (k-1) * 0.55;
+        spawnProj(pl.x + pl.facing*2.0, pl.y - 1.5,
+                  pl.facing*3.2, vy, dmg, 0, pl.pierceBonus, 1, '@');
+    }
+}
+
+function skillIWukong() {
+    pl.mp -= 50;
+    pl.skillICD = Math.floor(80 * pl.cdMul); if (pl.skillICD < 22) pl.skillICD = 22;
+    pl.skillIFlash = 24;
+    pl.invulnTimer = 24;
+    var dmg = Math.floor((80 + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
+    for (var i=0;i<enemies.length;i++) {
+        var e = enemies[i];
+        if (!e.alive) continue;
+        if (Math.abs(e.x - pl.x) < 20.0) {
+            damageEnemy(e, dmg, (e.x > pl.x) ? 1 : -1, 5.5);
+            e.stunTimer = 48;
+        }
+    }
+}
+
+function skillKShawujing() {
+    var dmg = Math.floor((22 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
+    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.5, 0, dmg, 0, pl.pierceBonus, 6, '>');
+    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.0, -0.9, dmg, 0, pl.pierceBonus, 6, '>');
+    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.0,  0.9, dmg, 0, pl.pierceBonus, 6, '>');
+}
+
+function shawujingFireBigArrow() {
+    var dmg = Math.floor((130 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
+    pl.mp -= 50;
+    pl.skillICD = Math.floor(60 * pl.cdMul); if (pl.skillICD < 20) pl.skillICD = 20;
+    pl.chargeTimer = 0;
+    pl.chargeFlash = 14;
+    pl.invulnTimer = 6;
+    spawnProj(pl.x + pl.facing*2.0, pl.y - 1.5,
+              pl.facing*6.0, 0, dmg, 0, 12 + pl.pierceBonus, 3, '=');
+}
+
+function skillKBajie() {
+    var dmg = Math.floor((40 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
+    var idx = spawnProjRaw(pl.x + pl.facing*2.0, pl.y - 1.5,
+                           pl.facing*3.2, 0, dmg, 0, 0, 9, '#');
+    if (idx >= 0) {
+        projs[idx].boomerang = 1;
+        projs[idx].returning = 0;
+        projs[idx].ox = pl.x;
+        projs[idx].oy = pl.y - 1.5;
+        projs[idx].life = 200;
+    }
+}
+
+function startBajieU() {
+    pl.mp -= 25;
+    pl.skillUCD = Math.floor(55 * pl.cdMul); if (pl.skillUCD < 15) pl.skillUCD = 15;
+    pl.dashTimer = 22;
+    pl.dashVx = pl.facing * 3.4;
+    pl.invulnTimer = 0;
+    pl.atkAnim = 0;
+    dashId++;
+}
+
+function skillIBajie() {
+    pl.mp -= 50;
+    pl.skillICD = Math.floor(100 * pl.cdMul); if (pl.skillICD < 30) pl.skillICD = 30;
+    pl.skillIFlash = 28;
+    pl.invulnTimer = 26;
+    var dmg = Math.floor((90 + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
+    for (var i=0;i<enemies.length;i++) {
+        var e = enemies[i];
+        if (!e.alive) continue;
+        if (Math.abs(e.x - pl.x) < 22.0) {
+            damageEnemy(e, dmg, (e.x > pl.x) ? 1 : -1, 7.0);
+            e.stunTimer = 75;
+        }
+    }
+}
+
+/* ============================================================
+ *                        敌人 AI
+ * ============================================================ */
+function enemyBarrage(e) {
+    var dmg = Math.floor(e.dmg * 0.7); if (dmg < 1) dmg = 1;
+    var i;
+    switch(e.type) {
+        case 2:
+            spawnProj(e.x, e.y - 1.5, e.facing*2.5, 0, dmg, 1, 0, 7, 'X');
+            break;
+        case 3:
+            for (i=-1;i<=1;i++) spawnProj(e.x, e.y - 1.5, i*0.8, 0, dmg, 1, 0, 1, '*');
+            break;
+        case 4:
+            for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 1.5, i*0.6, -0.2 + i*0.1, dmg, 1, 0, 6, '/');
+            break;
+        case 5:
+            for (i=0;i<8;i++) {
+                var a = i * Math.PI / 4;
+                spawnProj(e.x, e.y - 2.0, Math.cos(a)*1.8, Math.sin(a)*1.2, dmg, 1, 0, 5, 'O');
+            }
+            break;
+        case 6:
+            spawnProj(e.x, e.y - 2.0, e.facing*2.8, -0.4, dmg, 1, 0, 3, 'o');
+            spawnProj(e.x, e.y - 2.0, e.facing*2.8,  0.4, dmg, 1, 0, 3, 'o');
+            break;
+        case 7:
+            for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 7, '*');
+            break;
+        case 8:
+            if (e.phase === 0) {
+                if (e.barragePattern === 0) {
+                    spawnProj(e.x, e.y - 2.0, e.facing*2.5, 0, dmg, 1, 0, 5, '*');
+                } else {
+                    for (i=-1;i<=1;i++) spawnProj(e.x, e.y - 2.0, i*0.9, 0, dmg, 1, 0, 5, '*');
+                }
+                e.barragePattern = 1 - e.barragePattern;
+            } else {
+                var pat = e.barragePattern % 3;
+                if (pat === 0) {
+                    for (i=0;i<8;i++) {
+                        var a2 = i * Math.PI / 4;
+                        spawnProj(e.x, e.y - 2.0, Math.cos(a2)*1.9, Math.sin(a2)*1.3, dmg, 1, 0, 5, 'O');
+                    }
+                } else if (pat === 1) {
+                    for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 4, '*');
+                } else {
+                    spawnProj(e.x, e.y - 2.0, e.facing*3.2, 0, dmg, 1, 0, 5, '>');
+                    spawnProj(e.x, e.y - 3.2, e.facing*3.2, 0, dmg, 1, 0, 5, '>');
+                }
+                e.barragePattern++;
+            }
+            break;
+    }
+}
+
+function updateEnemies() {
+    for (var i=0;i<enemies.length;i++) {
+        var e = enemies[i];
+        if (!e.alive) continue;
+
+        if (e.hurtTimer > 0) e.hurtTimer--;
+        if (e.atkCd > 0) e.atkCd--;
+        if (e.atkAnim > 0) e.atkAnim--;
+        if (e.stunTimer > 0) e.stunTimer--;
+
+        e.x += e.vx;
+        e.vx *= 0.85;
+        if (Math.abs(e.vx) < 0.05) e.vx = 0;
+
+        if (e.type === 8 && !e.phase2Triggered && e.hp > 0 && e.hp <= e.maxhp / 2) {
+            e.phase2Triggered = 1;
+            e.phase = 1;
+            e.maxhp *= 2;
+            e.hp = e.maxhp;
+            e.barrageCd = 25;
+            e.atkCd = 15;
+            e.hurtTimer = 30;
+        }
+
+        if (e.stunTimer > 0 || e.hurtTimer > 0) {
+            if (e.x < 3) e.x = 3;
+            if (e.x > WORLD_W - 3) e.x = WORLD_W - 3;
+            e.y = GROUND_Y;
+            continue;
+        }
+
+        if (e.type >= 2) {
+            e.barrageCd--;
+            if (e.barrageCd <= 0) {
+                enemyBarrage(e);
+                var baseCd;
+                switch(e.type) {
+                    case 2: baseCd = 130; break;
+                    case 3: baseCd = 90; break;
+                    case 4: baseCd = 85; break;
+                    case 5: baseCd = 100; break;
+                    case 6: baseCd = 75; break;
+                    case 7: baseCd = 75; break;
+                    case 8: baseCd = (e.phase === 0) ? 90 : 55; break;
+                    default: baseCd = 100;
+                }
+                e.barrageCd = baseCd + Math.floor(Math.random()*30);
+            }
+        }
+
+        var dist = pl.x - e.x;
+        var adist = Math.abs(dist);
+
+        if (adist > 2.8) {
+            e.facing = (dist > 0) ? 1 : -1;
+            e.x += e.facing * e.speed;
+        } else {
+            e.facing = (dist > 0) ? 1 : -1;
+            if (e.atkCd <= 0 && Math.abs(e.y - pl.y) < 3.5) {
+                e.atkCd = (e.type >= 2) ? 38 : 58;
+                e.atkAnim = 10;
+                if (pl.hurtTimer <= 0 && pl.invulnTimer <= 0) {
+                    var dm = Math.floor(e.dmg * pl.dmgReduce);
+                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dm = Math.floor(dm/2);
+                    if (dm < 1) dm = 1;
+                    pl.hp -= dm;
+                    pl.hurtTimer = 28;
+                    pl.kbvx = e.facing * 2.0;
+                    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+                }
+            }
+        }
+
+        if (e.x < 3) e.x = 3;
+        if (e.x > WORLD_W - 3) e.x = WORLD_W - 3;
+        e.y = GROUND_Y;
+    }
+}
+
+/* ============================================================
+ *                        弹幕更新
+ * ============================================================ */
+function updateProjs() {
+    for (var i=0;i<projs.length;i++) {
+        var p = projs[i];
+        if (!p.alive) continue;
+
+        if (p.boomerang) {
+            if (!p.returning) {
+                if (Math.abs(p.x - p.ox) > 14.0) {
+                    p.returning = 1;
+                    for (var q=0;q<enemies.length;q++) enemies[q].lastProjHit = 0;
+                }
+            } else {
+                var dx = pl.x - p.x;
+                var dy = (pl.y - 1.5) - p.y;
+                var dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 2.5) { p.alive = 0; continue; }
+                p.vx = dx / dist * 5.5;
+                p.vy = dy / dist * 5.5;
+            }
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0 || p.x < 0 || p.x > WORLD_W || p.y < 0 || p.y > SH) {
+            p.alive = 0; continue;
+        }
+
+        if (p.owner === 0) {
+            var killed = false;
+            for (var j=0;j<enemies.length;j++) {
+                var e = enemies[j];
+                if (!e.alive) continue;
+                if (e.lastProjHit === p.id) continue;
+                var eCtrY = e.y - 1.0;
+                var xTol = 2.8, yTol = 3.5;
+                if (Math.abs(e.x - p.x) < xTol && Math.abs(eCtrY - p.y) < yTol) {
+                    e.lastProjHit = p.id;
+                    damageEnemy(e, p.dmg, (p.vx > 0) ? 1 : -1, 2.2);
+                    if (p.pierce > 0) p.pierce--;
+                    else if (!p.boomerang) { killed = true; break; }
+                }
+            }
+            if (killed) { p.alive = 0; continue; }
+        } else {
+            if (pl.hurtTimer <= 0 && pl.invulnTimer <= 0) {
+                if (Math.abs(pl.x - p.x) < 2.2 && Math.abs((pl.y - 1.5) - p.y) < 3.0) {
+                    var dmg = Math.floor(p.dmg * pl.dmgReduce);
+                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dmg = Math.floor(dmg/2);
+                    if (dmg < 1) dmg = 1;
+                    pl.hp -= dmg;
+                    pl.hurtTimer = 24;
+                    pl.kbvx = (p.vx > 0) ? 1.5 : -1.5;
+                    p.alive = 0;
+                    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+                }
+            }
+        }
+    }
+}
+
+/* ============================================================
+ *                        玩家更新
+ * ============================================================ */
+function updatePlayer() {
+    if (pl.hurtTimer > 0) pl.hurtTimer--;
+    if (pl.atkCd > 0) pl.atkCd--;
+    if (pl.atkAnim > 0) pl.atkAnim--;
+    if (pl.skillCd > 0) pl.skillCd--;
+    if (pl.skillUCD > 0) pl.skillUCD--;
+    if (pl.skillICD > 0) pl.skillICD--;
+    if (pl.invulnTimer > 0) pl.invulnTimer--;
+    if (pl.skillIFlash > 0) pl.skillIFlash--;
+    if (pl.chargeFlash > 0) pl.chargeFlash--;
+    if (pl.comboTimer > 0) {
+        pl.comboTimer--;
+        if (pl.comboTimer === 0) pl.comboStep = 0;
+    }
+
+    var mpi = (pl.mpRegen > 0) ? pl.mpRegen : 22;
+    if (frame % mpi === 0 && pl.mp < pl.maxmp) pl.mp++;
+    if (pl.hpRegen > 0 && frame % pl.hpRegen === 0 && pl.hp > 0 && pl.hp < pl.maxhp) pl.hp++;
+
+    if (pl.charType === CHAR_SHAWUJING) {
+        if (pl.chargeTimer > 0) {
+            if (!keyCur[K_I]) {
+                if (pl.chargeTimer >= CHARGE_MAX / 2) {
+                    var dmg = Math.floor((60 + pl.atkBonus) * pl.dmgMul * pl.projMul);
+                    if (dmg < 1) dmg = 1;
+                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*5.0, 0,
+                              dmg, 0, 3 + pl.pierceBonus, 6, '>');
+                }
+                pl.chargeTimer = 0;
+            } else {
+                pl.chargeTimer++;
+                if (pl.chargeTimer >= CHARGE_MAX) shawujingFireBigArrow();
+            }
+        } else {
+            if (keyEdge(K_I) && pl.mp >= 50 && pl.skillICD <= 0) pl.chargeTimer = 1;
+        }
+    }
+
+    var canMove = (pl.atkAnim === 0) && (pl.dashTimer === 0) && (pl.chargeTimer === 0);
+
+    if (keyEdge(K_U) && pl.skillUCD <= 0 && pl.mp >= 25 && pl.dashTimer === 0) {
+        if (pl.charType === CHAR_BAJIE) {
+            startBajieU();
+        } else {
+            pl.mp -= 25;
+            pl.skillUCD = Math.floor(45 * pl.cdMul); if (pl.skillUCD < 12) pl.skillUCD = 12;
+            pl.dashTimer = 14;
+            if (pl.charType === CHAR_WUKONG) {
+                pl.dashVx = pl.facing * 3.2;
+                pl.invulnTimer = 14;
+            } else {
+                pl.dashVx = -pl.facing * 3.5;
+                pl.invulnTimer = 18;
+                var dmgA = Math.floor((28 + pl.atkBonus) * pl.dmgMul * pl.projMul);
+                if (dmgA < 1) dmgA = 1;
+                for (var k=-1;k<=1;k++) {
+                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.0, k*0.6,
+                              dmgA, 0, pl.pierceBonus, 6, '>');
+                }
+            }
+            pl.atkAnim = 0;
+            dashId++;
+        }
+    }
+
+    if (keyEdge(K_I) && pl.skillICD <= 0 && pl.mp >= 50) {
+        if (pl.charType === CHAR_WUKONG) skillIWukong();
+        else if (pl.charType === CHAR_BAJIE) skillIBajie();
+    }
+
+    if (pl.dashTimer > 0) {
+        pl.dashTimer--;
+        pl.x += pl.dashVx;
+        pl.dashVx *= 0.90;
+
+        if (pl.charType !== CHAR_SHAWUJING) {
+            for (var i=0;i<enemies.length;i++) {
+                var e = enemies[i];
+                if (!e.alive || e.lastDashHit === dashId) continue;
+                if (Math.abs(e.x - pl.x) < 3.0 && Math.abs(e.y - pl.y) < 4.0) {
+                    e.lastDashHit = dashId;
+                    var dm = Math.floor((32 + pl.atkBonus) * pl.dmgMul);
+                    damageEnemy(e, dm, pl.facing, 4.5);
+                    if (pl.charType === CHAR_WUKONG) e.stunTimer = 32;
+                    if (pl.charType === CHAR_BAJIE) e.vx = pl.facing * 5.0;
+                }
+            }
+        }
+    } else {
+        var mv = 0;
+        if (canMove) {
+            if (keyCur[K_LEFT]) { mv -= 1.0; pl.facing = -1; }
+            if (keyCur[K_RIGHT]) { mv += 1.0; pl.facing = 1; }
+        }
+        if (pl.chargeTimer > 0) mv *= 0.25;
+        var spd = MOVESPD * pl.moveMul;
+        if (pl.charType === CHAR_BAJIE) spd *= 0.85;
+        pl.x += mv * spd;
+    }
+
+    if (canMove && keyEdge(K_JUMP) && pl.onGround) {
+        pl.vy = JUMPV; pl.onGround = 0;
+    }
+
+    if (canMove && keyEdge(K_ATK) && pl.atkCd <= 0) playerAttack();
+
+    if (canMove && keyEdge(K_SKILL) && pl.skillCd <= 0 && pl.mp >= 20) {
+        pl.mp -= 20;
+        pl.skillCd = Math.floor(22 * pl.cdMul); if (pl.skillCd < 6) pl.skillCd = 6;
+        if (pl.charType === CHAR_WUKONG) skillKWukong();
+        else if (pl.charType === CHAR_SHAWUJING) skillKShawujing();
+        else skillKBajie();
+    }
+
+    pl.vy += GRAV;
+    if (pl.vy > MAXFALL) pl.vy = MAXFALL;
+    pl.y += pl.vy;
+    if (pl.y >= GROUND_Y) { pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1; }
+
+    pl.x += pl.kbvx;
+    pl.kbvx *= 0.85;
+    if (Math.abs(pl.kbvx) < 0.05) pl.kbvx = 0;
+
+    if (pl.x < 4) pl.x = 4;
+    if (pl.x > WORLD_W - 4) pl.x = WORLD_W - 4;
+
+    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+}
+
+function updateCamera() {
+    var target = pl.x - SW * 0.5;
+    if (target < 0) target = 0;
+    if (target > WORLD_W - SW) target = WORLD_W - SW;
+    camX += (target - camX) * 0.18;
+}
+
+function checkLevelClear() {
+    var alive = 0;
+    for (var i=0;i<enemies.length;i++) if (enemies[i].alive) alive++;
+    if (alive === 0 && !levelCleared) {
+        levelCleared = 1;
+        levelClearTimer = 55;
+    }
+    if (levelCleared) {
+        levelClearTimer--;
+        if (levelClearTimer <= 0) {
+            var pos = level - STAGE_BASE[currentStage];
+            if (pos < STAGE_LEN[currentStage] - 1) {
+                prepareBuffSelection();
+                gameState = ST_BUFF;
+            } else {
+                if (!stageCleared[currentStage]) {
+                    if (currentStage === 0) {
+                        bonusHP += 50; bonusMP += 50; bonusATK += 5;
+                        if (maxUnlockedStage < 1) maxUnlockedStage = 1;
+                    } else if (currentStage === 1) {
+                        bonusHP += 50; bonusMP += 50; bonusATK += 10;
+                        if (maxUnlockedStage < 2) maxUnlockedStage = 2;
+                    }
+                    stageCleared[currentStage] = 1;
+                    saveProgress();
+                }
+                gameState = ST_STAGECLEAR;
+            }
+        }
+    }
+}
+
+/* ============================================================
+ *                        渲染 - 游戏内
+ * ============================================================ */
+function drawBackground() {
+    for (var y=2;y<11;y++)
+        for (var x=0;x<SW;x++)
+            if ((x * 37 + y * 91) % 73 === 0) {
+                buf[y][x] = '.'; col[y][x] = 8;
+            }
+
+    for (var x2=0;x2<SW;x2++) {
+        var wx = camX * 0.40 + x2;
+        var h = Math.floor(11.0 + 3.5 * Math.sin(wx*0.045) + 2.0 * Math.sin(wx*0.110 + 1.3));
+        if (h >= 0 && h < GROUND_Y) { buf[h][x2] = '^'; col[h][x2] = 8; }
+    }
+    for (var x3=0;x3<SW;x3++) { buf[GROUND_Y + 1][x3] = '='; col[GROUND_Y + 1][x3] = 9; }
+    for (var y2=GROUND_Y + 2;y2<SH;y2++)
+        for (var x4=0;x4<SW;x4++) {
+            buf[y2][x4] = ((x4 + y2) % 7 === 0) ? '#' : '.';
+            col[y2][x4] = 8;
+        }
+}
+
+function drawPlayer() {
+    var sx = Math.floor(pl.x - camX);
+    var sy = Math.floor(pl.y);
+    var bodyCol = 3;
+    var flash = (pl.hurtTimer > 0) && (Math.floor(frame/2) % 2);
+    var i;
+    var headChar;
+
+    if (pl.charType === CHAR_WUKONG) { bodyCol = 3; headChar = 'O'; }
+    else if (pl.charType === CHAR_SHAWUJING) { bodyCol = 2; headChar = 'A'; }
+    else { bodyCol = 9; headChar = 'P'; }
+
+    if (flash) bodyCol = 1;
+    if (pl.invulnTimer > 0) bodyCol = 6;
+    if (pl.chargeTimer > 0) bodyCol = 6;
+
+    if (pl.chargeTimer > 0) {
+        var r = 2 + Math.floor(pl.chargeTimer * 4 / CHARGE_MAX);
+        var baseY = sy - 2;
+        for (i=-r;i<=r;i++) {
+            var xx = sx + i;
+            var dy = Math.floor(Math.sqrt(Math.max(0, r*r - i*i)) * 0.5);
+            if (xx < 0 || xx >= SW) continue;
+            if (baseY - dy >= 0 && baseY - dy < SH) {
+                buf[baseY - dy][xx] = '*';
+                col[baseY - dy][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
+            }
+            if (baseY + dy >= 0 && baseY + dy < SH) {
+                buf[baseY + dy][xx] = '*';
+                col[baseY + dy][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
+            }
+        }
+    }
+
+    if (pl.dashTimer > 0) {
+        for (i=1;i<=3;i++) {
+            var gx = sx - Math.floor(pl.dashVx * i * 1.4);
+            putc2(gx, sy - 1, '~', 6);
+            putc2(gx, sy - 2, '~', 4);
+        }
+    }
+
+    putc2(sx,     sy - 2, headChar, bodyCol);
+    putc2(sx - 1, sy - 1, '/', bodyCol);
+    putc2(sx,     sy - 1, '|', bodyCol);
+    putc2(sx + 1, sy - 1, '\\', bodyCol);
+    putc2(sx - 1, sy,     '/', bodyCol);
+    putc2(sx + 1, sy,     '\\', bodyCol);
+
+    if (pl.charType === CHAR_SHAWUJING) {
+        var d = pl.facing;
+        putc2(sx + d*2, sy - 2, '/', 9);
+        putc2(sx + d*2, sy - 1, '(', 9);
+        putc2(sx + d*2, sy,     '\\', 9);
+    } else if (pl.charType === CHAR_BAJIE) {
+        var d2 = pl.facing;
+        putc2(sx + d2*2, sy - 2, 'T', 9);
+        putc2(sx + d2*2, sy - 1, '|', 9);
+        putc2(sx + d2*2, sy,     '|', 9);
+    }
+
+    if (pl.atkAnim > 0) {
+        var dd = pl.facing, step = pl.comboStep;
+        if (pl.charType === CHAR_WUKONG) {
+            if (step <= 1) { putc2(sx + dd*2, sy - 1, '-', 7); putc2(sx + dd*3, sy - 1, '-', 7); }
+            else if (step === 2) {
+                putc2(sx + dd*2, sy - 2, '/', 7);
+                putc2(sx + dd*3, sy - 1, '-', 7);
+                putc2(sx + dd*4, sy,     '\\', 7);
+            } else {
+                putc2(sx + dd*2, sy - 1, '=', 3);
+                putc2(sx + dd*3, sy - 1, '=', 3);
+                putc2(sx + dd*4, sy - 1, '=', 3);
+                putc2(sx + dd*5, sy - 1, '>', 1);
+                putc2(sx + dd*3, sy - 3, '*', 1);
+                putc2(sx + dd*3, sy + 1, '*', 1);
+            }
+        } else if (pl.charType === CHAR_BAJIE) {
+            if (step <= 1) { putc2(sx + dd*2, sy - 2, '/', 9); putc2(sx + dd*3, sy - 1, '/', 9); }
+            else if (step === 2) {
+                putc2(sx + dd*2, sy - 2, '|', 9);
+                putc2(sx + dd*3, sy - 1, '|', 9);
+                putc2(sx + dd*4, sy,     '/', 9);
+            } else {
+                var j;
+                for (j=-3;j<=3;j++) {
+                    if (j === 0) continue;
+                    putc2(sx + j, sy - 2, '-', 3);
+                    putc2(sx + j, sy,     '-', 3);
+                }
+                putc2(sx - 3, sy - 1, '#', 1);
+                putc2(sx + 3, sy - 1, '#', 1);
+            }
+        }
+    }
+
+    if (pl.skillIFlash > 0) {
+        var t2, r2;
+        var baseY2 = sy - 2;
+        if (pl.charType === CHAR_BAJIE) t2 = 28 - pl.skillIFlash;
+        else t2 = 24 - pl.skillIFlash;
+        r2 = t2;
+        for (i=-r2;i<=r2;i++) {
+            var xx2 = sx + i;
+            var dy2 = Math.floor(Math.sqrt(Math.max(0, r2*r2 - i*i)) * 0.55);
+            if (xx2 < 0 || xx2 >= SW) continue;
+            if (baseY2 - dy2 >= 0 && baseY2 - dy2 < SH) { buf[baseY2 - dy2][xx2] = '*'; col[baseY2 - dy2][xx2] = 3; }
+            if (baseY2 + dy2 >= 0 && baseY2 + dy2 < SH) { buf[baseY2 + dy2][xx2] = '*'; col[baseY2 + dy2][xx2] = 1; }
+        }
+    }
+
+    if (pl.chargeFlash > 0) {
+        putc2(sx + pl.facing*2, sy - 1, '!', 3);
+        putc2(sx + pl.facing*3, sy - 1, '!', 1);
+    }
+}
+
+function drawEnemy(e) {
+    var sx = Math.floor(e.x - camX);
+    var sy = Math.floor(e.y);
+    var c, barw, filled, by;
+    var head;
+
+    switch(e.type) {
+        case 0: c=2; head='o'; barw=5; break;
+        case 1: c=1; head='O'; barw=6; break;
+        case 2: c=5; head='X'; barw=10; break;
+        case 3: c=1; head='R'; barw=11; break;
+        case 4: c=6; head='F'; barw=12; break;
+        case 5: c=5; head='M'; barw=14; break;
+        case 6: c=3; head='G'; barw=11; break;
+        case 7: c=7; head='S'; barw=11; break;
+        case 8: c=5; head='Z'; barw=16; break;
+        default: c=2; head='o'; barw=5; break;
+    }
+    if (e.hurtTimer > 0) c = 7;
+    if (e.stunTimer > 0) c = 4;
+    if (e.type === 8 && e.phase === 1) c = 1;
+
+    if (e.type >= 3) {
+        putc2(sx,     sy - 2, head, c);
+        putc2(sx - 1, sy - 1, '[', c);
+        putc2(sx,     sy - 1, '|', c);
+        putc2(sx + 1, sy - 1, ']', c);
+        putc2(sx - 2, sy,     '/', c);
+        putc2(sx - 1, sy,     '/', c);
+        putc2(sx + 1, sy,     '\\', c);
+        putc2(sx + 2, sy,     '\\', c);
+    } else {
+        putc2(sx,     sy - 2, head, c);
+        putc2(sx - 1, sy - 1, '/', c);
+        putc2(sx,     sy - 1, '|', c);
+        putc2(sx + 1, sy - 1, '\\', c);
+        putc2(sx - 1, sy,     '/', c);
+        putc2(sx + 1, sy,     '\\', c);
+    }
+
+    if (e.stunTimer > 0) {
+        putc2(sx - 2, sy - 3, '*', 3);
+        putc2(sx + 2, sy - 3, '*', 3);
+    }
+
+    filled = Math.floor(e.hp / e.maxhp * barw + 0.5);
+    by = sy - (e.type >= 3 ? 4 : 3);
+    for (var i=0;i<barw;i++) {
+        var bx = sx - Math.floor(barw/2) + i;
+        putc2(bx, by, (i < filled) ? '=' : '-', (i < filled) ? 1 : 8);
+    }
+    if (e.type === 8 && e.phase === 1) drawText(sx - 1, by - 1, "P2", 1);
+}
+
+function drawProjs() {
+    for (var i=0;i<projs.length;i++) {
+        var p = projs[i];
+        if (!p.alive) continue;
+        var sx = Math.floor(p.x - camX);
+        var sy = Math.floor(p.y);
+        if (p.owner === 0) {
+            putc2(sx, sy, p.shape, p.color);
+            if (p.pierce > 0) putc2(sx - 1, sy, '-', p.color);
+        } else {
+            putc2(sx, sy, p.shape, p.color);
+        }
+    }
+}
+
+function drawBar(x, y, w, cur, max, color, label) {
+    var tmp;
+    drawText(x, y, label, 7);
+    x += 4;
+    var filled = Math.floor(cur / max * w + 0.5);
+    if (filled < 0) filled = 0;
+    if (filled > w) filled = w;
+    for (var i=0;i<w;i++) {
+        if (i < filled) { buf[y][x + i] = '|'; col[y][x + i] = color; }
+        else { buf[y][x + i] = '.'; col[y][x + i] = 8; }
+    }
+    tmp = " " + cur + "/" + max;
+    drawText(x + w + 1, y, tmp, 7);
+}
+
+function drawHUD() {
+    var tmp;
+    var sx;
+
+    drawBar(2, 0, 18, pl.hp, pl.maxhp, 1, "HP");
+    drawBar(2, 1, 18, pl.mp, pl.maxmp, 4, "MP");
+
+    sx = 36;
+    if (pl.skillCd > 0) { tmp = "K:" + (pl.skillCd < 10 ? " " : "") + pl.skillCd; drawText(sx, 1, tmp, 8); }
+    else {
+        var kname = "K:FIRE";
+        if (pl.charType === CHAR_SHAWUJING) kname = "K:3SHOT";
+        else if (pl.charType === CHAR_BAJIE) kname = "K:RAKE";
+        drawText(sx, 1, kname, 6);
+    }
+    sx += 9;
+    if (pl.skillUCD > 0) { tmp = "U:" + (pl.skillUCD < 10 ? " " : "") + pl.skillUCD; drawText(sx, 1, tmp, 8); }
+    else {
+        var uname = "U:DASH";
+        if (pl.charType === CHAR_SHAWUJING) uname = "U:BACK";
+        else if (pl.charType === CHAR_BAJIE) uname = "U:BOAR";
+        drawText(sx, 1, uname, 6);
+    }
+    sx += 9;
+    if (pl.charType === CHAR_SHAWUJING) {
+        if (pl.chargeTimer > 0) {
+            tmp = "CHG " + Math.floor(pl.chargeTimer * 100 / CHARGE_MAX) + "%";
+            drawText(sx, 1, tmp, (pl.chargeTimer >= CHARGE_MAX - 5) ? 3 : 6);
+        } else drawText(sx, 1, "HOLD I", 6);
+    } else {
+        if (pl.skillICD > 0) { tmp = "I:" + (pl.skillICD < 10 ? " " : "") + pl.skillICD; drawText(sx, 1, tmp, 8); }
+        else {
+            var iname = "I:RAGE";
+            if (pl.charType === CHAR_BAJIE) iname = "I:QUAKE";
+            drawText(sx, 1, iname, 6);
+        }
+    }
+
+    var pos = level - STAGE_BASE[currentStage];
+    tmp = "STAGE " + (currentStage + 1) + "  LV " + (pos + 1) + "/" + STAGE_LEN[currentStage];
+    drawText(70, 0, tmp, 7);
+    tmp = "SCORE " + pl.score;
+    drawText(70, 1, tmp, 3);
+    tmp = "BUFF x" + pl.buffCount;
+    drawText(70, 2, tmp, 5);
+
+    if (pl.comboStep > 0 && pl.comboTimer > 0) {
+        tmp = "COMBO x" + pl.comboStep;
+        drawText(2, 2, tmp, 3);
+        for (sx = 0; sx < Math.floor(pl.comboTimer/3); sx++) putc2(13 + sx, 2, '|', 3);
+    }
+
+    if (pl.critChance > 0) {
+        tmp = "CRIT " + pl.critChance + "%";
+        drawText(2, 3, tmp, 5);
+    }
+
+    if (levelCleared && levelClearTimer > 0)
+        drawText(Math.floor(SW/2) - 6, 8, "LEVEL CLEAR!", 3);
+}
+
+function renderGame() {
+    for (var y=0;y<SH;y++)
+        for (var x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    drawBackground();
+    drawProjs();
+    for (var i=0;i<enemies.length;i++) if (enemies[i].alive) drawEnemy(enemies[i]);
+    drawPlayer();
+    drawHUD();
+}
+
+/* ============================================================
+ *                        界面渲染
+ * ============================================================ */
+function renderCharSel() {
+    var CW = 28, CH = 14, GAP = 3;
+    var totalW = CW * 3 + GAP * 2;
+    var startX = Math.floor((SW - totalW) / 2);
+    var startY = 5;
+    var y, x, i, k;
+
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+
+    drawBackground();
+    drawText(Math.floor(SW/2) - 8, 2, "CHOOSE YOUR HERO", 3);
+
+    for (i=0;i<3;i++) {
+        var cx = startX + i * (CW + GAP);
+        var cy = startY;
+        var selected = (i === charSel);
+        var bcolor = selected ? 3 : 8;
+        var ncolor = selected ? 3 : 7;
+        var dcolor = selected ? 6 : 8;
+
+        for (k=0;k<CW;k++) {
+            putc2(cx + k, cy, '-', bcolor);
+            putc2(cx + k, cy + CH - 1, '-', bcolor);
+        }
+        for (k=0;k<CH;k++) {
+            putc2(cx, cy + k, '|', bcolor);
+            putc2(cx + CW - 1, cy + k, '|', bcolor);
+        }
+        putc2(cx, cy, '+', bcolor);
+        putc2(cx + CW - 1, cy, '+', bcolor);
+        putc2(cx, cy + CH - 1, '+', bcolor);
+        putc2(cx + CW - 1, cy + CH - 1, '+', bcolor);
+
+        if (i === 0) {
+            drawText(cx + 2, cy + 2, "WU KONG", ncolor);
+            drawText(cx + 2, cy + 4, "MELEE / MOBILE", dcolor);
+            drawText(cx + 2, cy + 6, "J: 3-HIT COMBO", dcolor);
+            drawText(cx + 2, cy + 7, "K: TRIPLE FIREBALL", dcolor);
+            drawText(cx + 2, cy + 8, "U: CLOUD DASH +STUN", dcolor);
+            drawText(cx + 2, cy + 9, "I: HEAVEN RAGE +STUN", dcolor);
+            drawText(cx + 2, cy + 11, "FAST / STUN", 8);
+        } else if (i === 1) {
+            drawText(cx + 2, cy + 2, "SHA WUJING", ncolor);
+            drawText(cx + 2, cy + 4, "BOW / RANGED", dcolor);
+            drawText(cx + 2, cy + 6, "J: 3-ARROW SHOT", dcolor);
+            drawText(cx + 2, cy + 7, "K: TRIPLE SHOT", dcolor);
+            drawText(cx + 2, cy + 8, "U: BACK + 3 ARROWS", dcolor);
+            drawText(cx + 2, cy + 9, "I: CHARGED GIANT ARROW", dcolor);
+            drawText(cx + 2, cy + 11, "RANGED / PIERCE", 8);
+        } else {
+            drawText(cx + 2, cy + 2, "BA JIE", ncolor);
+            drawText(cx + 2, cy + 4, "HEAVY / TANK", dcolor);
+            drawText(cx + 2, cy + 6, "J: 3-HIT + 360 SPIN", dcolor);
+            drawText(cx + 2, cy + 7, "K: BOOMERANG RAKE", dcolor);
+            drawText(cx + 2, cy + 8, "U: BOAR CHARGE +DR", dcolor);
+            drawText(cx + 2, cy + 9, "I: EARTHQUAKE +STUN", dcolor);
+            drawText(cx + 2, cy + 11, "AOE / STUN / TANK", 8);
+        }
+    }
+    drawText(Math.floor(SW/2) - 20, 22, "A / D  OR  <- / ->   TO  CHOOSE", 7);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  CONFIRM", 2);
+}
+
+function renderStageSel() {
+    var CW = 28, CH = 12, GAP = 3;
+    var totalW = CW * 3 + GAP * 2;
+    var startX = Math.floor((SW - totalW) / 2);
+    var startY = 6;
+    var tmp;
+    var y, x, i, k;
+
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+
+    drawBackground();
+    drawText(Math.floor(SW/2) - 8, 2, "CHOOSE A CHAPTER", 3);
+
+    for (i=0;i<3;i++) {
+        var cx = startX + i * (CW + GAP);
+        var cy = startY;
+        var unlocked = (i <= maxUnlockedStage);
+        var selected = (i === stageSel);
+        var bcolor = selected ? (unlocked ? 3 : 1) : 8;
+        var ncolor = unlocked ? (selected ? 3 : 7) : 8;
+        var dcolor = unlocked ? (selected ? 6 : 8) : 8;
+        var cleared = stageCleared[i];
+
+        for (k=0;k<CW;k++) {
+            putc2(cx + k, cy, '-', bcolor);
+            putc2(cx + k, cy + CH - 1, '-', bcolor);
+        }
+        for (k=0;k<CH;k++) {
+            putc2(cx, cy + k, '|', bcolor);
+            putc2(cx + CW - 1, cy + k, '|', bcolor);
+        }
+        putc2(cx, cy, '+', bcolor);
+        putc2(cx + CW - 1, cy, '+', bcolor);
+        putc2(cx, cy + CH - 1, '+', bcolor);
+        putc2(cx + CW - 1, cy + CH - 1, '+', bcolor);
+
+        tmp = "CHAPTER " + (i + 1);
+        drawText(cx + 2, cy + 1, tmp, ncolor);
+
+        if (i === 0) {
+            drawText(cx + 2, cy + 3, "7 LEVELS", dcolor);
+            drawText(cx + 2, cy + 4, "BOSS: WHITE BONE", dcolor);
+            drawText(cx + 2, cy + 6, "REWARD:", 8);
+            drawText(cx + 2, cy + 7, " HP+50 MP+50 ATK+5", 3);
+        } else if (i === 1) {
+            drawText(cx + 2, cy + 3, "21 LEVELS", dcolor);
+            drawText(cx + 2, cy + 4, "RED BOY(7) / FAN(14)", dcolor);
+            drawText(cx + 2, cy + 5, "BULL KING(21)", dcolor);
+            drawText(cx + 2, cy + 7, "REWARD:", 8);
+            drawText(cx + 2, cy + 8, " HP+50 MP+50 ATK+10", 3);
+        } else {
+            drawText(cx + 2, cy + 3, "14 LEVELS", dcolor);
+            drawText(cx + 2, cy + 4, "TWO BOYS(7)", dcolor);
+            drawText(cx + 2, cy + 5, "ZHENYUAN(14, 2 PHASES)", dcolor);
+            drawText(cx + 2, cy + 8, "HONOR & GLORY", 3);
+        }
+
+        if (!unlocked) drawText(cx + 2, cy + CH - 2, ">>> LOCKED <<<", 1);
+        else if (cleared) drawText(cx + 2, cy + CH - 2, "[ CLEARED ]", 2);
+        else if (selected) drawText(cx + 2, cy + CH - 2, "[ ENTER ]", 3);
+    }
+    drawText(Math.floor(SW/2) - 20, 22, "A / D  OR  <- / ->   TO  CHOOSE", 7);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  ENTER", 2);
+}
+
+function renderBuff() {
+    var CW = 26, CH = 10, GAP = 3;
+    var totalW = CW * 3 + GAP * 2;
+    var startX = Math.floor((SW - totalW) / 2);
+    var startY = 7;
+    var tmp;
+    var y, x, i, k;
+
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+
+    drawBackground();
+    drawText(Math.floor(SW/2) - 8, 3, "CHOOSE A BLESSING", 3);
+    var pos = level - STAGE_BASE[currentStage];
+    tmp = "CHAPTER " + (currentStage + 1) + "  LEVEL " + (pos + 1) + " CLEARED";
+    drawText(Math.floor(SW/2) - 13, 5, tmp, 6);
+
+    for (i=0;i<3;i++) {
+        var cx = startX + i * (CW + GAP);
+        var cy = startY;
+        var selected = (i === buffSel);
+        var bcolor = selected ? 3 : 8;
+        var ncolor = selected ? 3 : 7;
+        var dcolor = selected ? 6 : 8;
+        var kcolor = selected ? 2 : 8;
+
+        for (k=0;k<CW;k++) {
+            putc2(cx + k, cy, '-', bcolor);
+            putc2(cx + k, cy + CH - 1, '-', bcolor);
+        }
+        for (k=0;k<CH;k++) {
+            putc2(cx, cy + k, '|', bcolor);
+            putc2(cx + CW - 1, cy + k, '|', bcolor);
+        }
+        putc2(cx, cy, '+', bcolor);
+        putc2(cx + CW - 1, cy, '+', bcolor);
+        putc2(cx, cy + CH - 1, '+', bcolor);
+        putc2(cx + CW - 1, cy + CH - 1, '+', bcolor);
+
+        var b = BUFFS[buffOptions[i]];
+        var ln = b.name.length;
+        drawText(cx + 1 + Math.floor((CW - 2 - ln)/2), cy + 2, b.name, ncolor);
+        var ld = b.desc.length;
+        drawText(cx + 1 + Math.floor((CW - 2 - ld)/2), cy + 5, b.desc, dcolor);
+        tmp = "[ " + (i+1) + " ]";
+        drawText(cx + 1 + Math.floor((CW - 2 - 5)/2), cy + 7, tmp, kcolor);
+    }
+    drawText(Math.floor(SW/2) - 20, 21, "A / D  OR  <- / ->   TO  CHOOSE", 7);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  CONFIRM", 2);
+}
+
+function renderTitle() {
+    var y, x;
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+
+    drawBackground();
+
+    drawText(Math.floor(SW/2) - 26, 4,  "  ____                       _                   ", 3);
+    drawText(Math.floor(SW/2) - 26, 5,  " |  _ \\ _ __ ___  __ _ _ __ ___    ___  ___     ", 3);
+    drawText(Math.floor(SW/2) - 26, 6,  " | | | | '__/ _ \\/ _` | '_ ` _ \\  / _ \\/ __|    ", 3);
+    drawText(Math.floor(SW/2) - 26, 7,  " | |_| | | |  __/ (_| | | | | | || (_) \\__ \\    ", 3);
+    drawText(Math.floor(SW/2) - 26, 8,  " |____/|_|  \\___|\\__,_|_| |_| |_| \\___/|___/    ", 3);
+
+    drawText(Math.floor(SW/2) - 12, 10, "DREAM JOURNEY TO THE WEST", 6);
+    drawText(Math.floor(SW/2) - 20, 11, "3 HEROES - 3 CHAPTERS - 42 LEVELS", 8);
+
+    var ut = "UNLOCKED CHAPTER: " + (maxUnlockedStage + 1) + " / 3";
+    drawText(Math.floor(SW/2) - 12, 13, ut, 5);
+
+    drawText(Math.floor(SW/2) - 20, 15, "A / D  or  <- / ->   :  MOVE", 7);
+    drawText(Math.floor(SW/2) - 20, 16, "W / SPACE / UP       :  JUMP", 7);
+    drawText(Math.floor(SW/2) - 20, 17, "J                    :  ATTACK (3-HIT COMBO)", 3);
+    drawText(Math.floor(SW/2) - 20, 18, "K / U / I            :  SKILLS", 6);
+    drawText(Math.floor(SW/2) - 20, 19, "ESC                  :  QUIT", 8);
+
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  START", 2);
+}
+
+function renderOver() {
+    var y, x;
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    drawBackground();
+    drawText(Math.floor(SW/2) - 5, 8, "GAME  OVER", 1);
+    var tmp;
+    var pos = level - STAGE_BASE[currentStage];
+    tmp = "FINAL SCORE : " + pl.score;
+    drawText(Math.floor(SW/2) - 9, 11, tmp, 3);
+    tmp = "CHAPTER " + (currentStage + 1) + "  LEVEL " + (pos + 1);
+    drawText(Math.floor(SW/2) - 9, 12, tmp, 7);
+    tmp = "BLESSINGS   : " + pl.buffCount;
+    drawText(Math.floor(SW/2) - 9, 13, tmp, 5);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 14, 18, "PRESS  J  TO  RETURN", 7);
+}
+
+function renderStageClear() {
+    var y, x;
+    var tmp;
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    drawBackground();
+    drawText(Math.floor(SW/2) - 12, 6, "*** CHAPTER CLEAR ***", 3);
+    tmp = "CHAPTER " + (currentStage + 1) + " CLEARED!";
+    drawText(Math.floor(SW/2) - 9, 9, tmp, 6);
+
+    if (currentStage === 0) {
+        drawText(Math.floor(SW/2) - 18, 12, "PERMANENT REWARD:", 5);
+        drawText(Math.floor(SW/2) - 18, 13, "  MAX HP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 14, "  MAX MP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 15, "  ATTACK +5", 2);
+    } else if (currentStage === 1) {
+        drawText(Math.floor(SW/2) - 18, 12, "PERMANENT REWARD:", 5);
+        drawText(Math.floor(SW/2) - 18, 13, "  MAX HP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 14, "  MAX MP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 15, "  ATTACK +10", 2);
+    } else {
+        drawText(Math.floor(SW/2) - 18, 12, "YOU HAVE CONQUERED EVERYTHING!", 3);
+        drawText(Math.floor(SW/2) - 18, 13, "THE JOURNEY TO THE WEST IS COMPLETE.", 6);
+    }
+    if (currentStage < 2)
+        drawText(Math.floor(SW/2) - 14, 18, "A NEW CHAPTER IS UNLOCKED!", 3);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 14, 22, "PRESS  J  TO  CONTINUE", 7);
+}
+
+function renderAllWin() {
+    var y, x;
+    for (y=0;y<SH;y++)
+        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    drawBackground();
+    drawText(Math.floor(SW/2) - 9, 6, "***  VICTORY  ***", 3);
+    drawText(Math.floor(SW/2) - 22, 9,  "YOU CONQUERED ALL 3 CHAPTERS - 42 LEVELS!", 6);
+    drawText(Math.floor(SW/2) - 22, 10, "WHITE BONE / RED BOY / IRON FAN / BULL KING", 8);
+    drawText(Math.floor(SW/2) - 22, 11, "GOLD BOY / SILVER BOY / ZHENYUAN DAXIAN", 8);
+    var tmp = "FINAL SCORE : " + pl.score;
+    drawText(Math.floor(SW/2) - 9, 14, tmp, 3);
+    if (Math.floor(frame/15) % 2 === 0)
+        drawText(Math.floor(SW/2) - 14, 19, "PRESS  J  TO  RETURN", 7);
+}
+
+/* ============================================================
+ *                        主更新
+ * ============================================================ */
+function update() {
+    frame++;
+
+    if (gameState === ST_TITLE) {
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) { charSel = 0; gameState = ST_CHARSEL; }
+        return;
+    }
+    if (gameState === ST_CHARSEL) {
+        if (keyEdge(K_LEFT) && charSel > 0) charSel--;
+        if (keyEdge(K_RIGHT) && charSel < 2) charSel++;
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
+            selectedChar = charSel;
+            stageSel = 0;
+            gameState = ST_STAGESEL;
+        }
+        return;
+    }
+    if (gameState === ST_STAGESEL) {
+        if (keyEdge(K_LEFT) && stageSel > 0) stageSel--;
+        if (keyEdge(K_RIGHT) && stageSel < 2) stageSel++;
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
+            if (stageSel <= maxUnlockedStage) enterStage(stageSel);
+        }
+        return;
+    }
+    if (gameState === ST_OVER) {
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) gameState = ST_TITLE;
+        return;
+    }
+    if (gameState === ST_STAGECLEAR) {
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
+            if (currentStage === 2 && stageCleared[2]) gameState = ST_ALLWIN;
+            else { stageSel = 0; gameState = ST_STAGESEL; }
+        }
+        return;
+    }
+    if (gameState === ST_ALLWIN) {
+        if (keyEdge(K_ATK) || keyEdge(K_JUMP)) gameState = ST_TITLE;
+        return;
+    }
+    if (gameState === ST_BUFF) { updateBuff(); return; }
+
+    updatePlayer();
+    updateEnemies();
+    updateProjs();
+    updateCamera();
+    checkLevelClear();
+}
+
+function render() {
+    switch(gameState) {
+        case ST_TITLE: renderTitle(); break;
+        case ST_CHARSEL: renderCharSel(); break;
+        case ST_STAGESEL: renderStageSel(); break;
+        case ST_PLAY: renderGame(); break;
+        case ST_BUFF: renderBuff(); break;
+        case ST_OVER: renderOver(); break;
+        case ST_STAGECLEAR: renderStageClear(); break;
+        case ST_ALLWIN: renderAllWin(); break;
+    }
+}
+
+/* ============================================================
+ *                        主循环
+ * ============================================================ */
+function adjustFontSize() {
+    var maxW = window.innerWidth - 20;
+    var maxH = window.innerHeight - 20;
+    // 100 列，28 行
+    // 等宽字体宽度约 0.6em，行高设 1.05em
+    var fsW = maxW / (SW * 0.6);
+    var fsH = maxH / (SH * 1.05);
+    var fs = Math.min(fsW, fsH);
+    if (fs > 22) fs = 22;
+    if (fs < 6) fs = 6;
+    screenEl.style.fontSize = fs + 'px';
+}
+window.addEventListener('resize', adjustFontSize);
+adjustFontSize();
+
+loadProgress();
+
+var lastTick = 0;
+var TICK = 33;
+
+function loop() {
+    var now = performance.now();
+    if (now - lastTick >= TICK) {
+        lastTick = now;
+        pollKeys();
+        update();
+        render();
+        present();
+    }
+    requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
