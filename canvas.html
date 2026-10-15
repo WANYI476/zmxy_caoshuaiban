@@ -2,25 +2,40 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>造梦西游 · 字符版</title>
 <style>
-  html,body {
-    margin:0; padding:0; height:100%;
-    background:#000; overflow:hidden;
-    display:flex; align-items:center; justify-content:center;
-    font-family:'Consolas','Courier New',monospace;
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%;
+    background:#000;
+    overflow:hidden;
+    font-family:'Consolas','Courier New','Menlo',monospace;
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+    touch-action:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #wrap {
+    width:100%; height:100%;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    position:relative;
   }
   #screen {
     margin:0;
-    font-family:'Consolas','Courier New',monospace;
+    font-family:'Consolas','Courier New','Menlo',monospace !important;
     font-weight:bold;
-    line-height:1.05;
+    line-height:1.0;
     letter-spacing:0.5px;
     white-space:pre;
     background:#000;
-    padding:6px;
-    border-radius:4px;
-    box-shadow:0 0 60px rgba(120,80,220,.4);
+    padding:4px;
+    font-variant-ligatures:none;
   }
   .c0 { color:#cccccc; }
   .c1 { color:#ff5555; }
@@ -32,10 +47,108 @@
   .c7 { color:#ffffff; }
   .c8 { color:#888888; }
   .c9 { color:#ffaa00; }
+
+  /* ========== 虚拟按键（仅触屏设备显示） ========== */
+  #mobile-controls { display: none; }
+
+  @media (pointer: coarse) {
+    #mobile-controls {
+      display: block;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40vh;
+      pointer-events: none;
+      z-index: 100;
+      padding: 12px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+    #mobile-controls .pad-left,
+    #mobile-controls .pad-right {
+      position: absolute;
+      bottom: 12px;
+      display: flex;
+      gap: 12px;
+      pointer-events: auto;
+      align-items: flex-end;
+    }
+    #mobile-controls .pad-left  { left: 12px; }
+    #mobile-controls .pad-right { right: 12px; }
+
+    #mobile-controls .btn {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(30,30,60,0.55);
+      color: #fff;
+      font-size: 20px;
+      font-weight: bold;
+      font-family: inherit;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      transition: transform .08s, background .08s, border-color .08s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+    }
+    #mobile-controls .btn.pressed {
+      transform: scale(0.88);
+      background: rgba(255,200,60,0.55);
+      border-color: #ffe040;
+    }
+    #mobile-controls .jump  { background: rgba(60,120,200,0.55); border-color: rgba(120,180,255,0.5); }
+    #mobile-controls .atk   { background: rgba(200,60,60,0.55); border-color: rgba(255,120,120,0.5); width: 74px; height: 74px; font-size: 22px; }
+    #mobile-controls .skill { background: rgba(120,60,200,0.55); border-color: rgba(180,120,255,0.5); width: 56px; height: 56px; font-size: 18px; }
+  }
+
+  /* 竖屏提示 */
+  #rotate-hint {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #05050f;
+    color: #ffe040;
+    z-index: 999;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: sans-serif;
+    font-size: 20px;
+    text-align: center;
+    padding: 20px;
+  }
+  @media (pointer: coarse) and (orientation: portrait) {
+    #rotate-hint { display: flex; }
+  }
 </style>
 </head>
 <body>
-<pre id="screen"></pre>
+<div id="wrap"><pre id="screen"></pre></div>
+
+<div id="mobile-controls">
+  <div class="pad-left">
+    <button class="btn" data-key="ArrowLeft">◀</button>
+    <button class="btn" data-key="ArrowRight">▶</button>
+    <button class="btn jump" data-key="Space">跳</button>
+  </div>
+  <div class="pad-right">
+    <button class="btn skill" data-key="KeyI">I</button>
+    <button class="btn skill" data-key="KeyU">U</button>
+    <button class="btn skill" data-key="KeyK">K</button>
+    <button class="btn atk" data-key="KeyJ">攻</button>
+  </div>
+</div>
+
+<div id="rotate-hint">
+  <div style="font-size:64px;margin-bottom:20px;">📱↻</div>
+  <div>请横屏使用手机</div>
+  <div style="font-size:14px;color:#888;margin-top:20px;">横过来体验更佳</div>
+</div>
+
 <script>
 (function(){
 'use strict';
@@ -50,8 +163,8 @@ var GROUND_Y = 22;
 var GRAV = 0.55, JUMPV = -3.60, MAXFALL = 1.80, MOVESPD = 1.00;
 var MAXENEMY = 32, MAXPROJ = 96;
 
-var STAGE0_LEN = 7, STAGE1_LEN = 21, STAGE2_LEN = 14;
-var TOTAL_LEVEL = STAGE0_LEN + STAGE1_LEN + STAGE2_LEN;
+var STAGE0_LEN = 7, STAGE1_LEN = 21, STAGE2_LEN = 14, STAGE3_LEN = 20;
+var TOTAL_LEVEL = STAGE0_LEN + STAGE1_LEN + STAGE2_LEN + STAGE3_LEN;
 
 var ST_TITLE=0, ST_CHARSEL=1, ST_STAGESEL=2, ST_PLAY=3,
     ST_BUFF=4, ST_OVER=5, ST_STAGECLEAR=6, ST_ALLWIN=7;
@@ -60,17 +173,17 @@ var K_LEFT=0, K_RIGHT=1, K_JUMP=2, K_ATK=3, K_SKILL=4, K_U=5, K_I=6, K_QUIT=7;
 
 var CHAR_WUKONG=0, CHAR_SHAWUJING=1, CHAR_BAJIE=2;
 var CHARGE_MAX = 60;
-var SAVE_KEY = 'zmxy_char_save';
+var SAVE_KEY = 'zmxy_char_save_v2';
 
-var STAGE_BASE = [0, 7, 28];
-var STAGE_LEN = [STAGE0_LEN, STAGE1_LEN, STAGE2_LEN];
+var STAGE_BASE = [0, 7, 28, 42];
+var STAGE_LEN = [STAGE0_LEN, STAGE1_LEN, STAGE2_LEN, STAGE3_LEN];
 
 /* ============================================================
- *                        缓冲
+ *                        屏幕缓冲
  * ============================================================ */
 var buf = [];
 var col = [];
-for (var iy=0; iy<SH; iy++){
+for (var iy = 0; iy < SH; iy++){
     buf.push(new Array(SW).fill(' '));
     col.push(new Array(SW).fill(0));
 }
@@ -81,7 +194,7 @@ function putc2(x, y, c, color) {
     col[y][x] = color;
 }
 function drawText(x, y, s, color) {
-    for (var i=0; i<s.length; i++) putc2(x+i, y, s[i], color);
+    for (var i = 0; i < s.length; i++) putc2(x + i, y, s[i], color);
 }
 
 var screenEl = document.getElementById('screen');
@@ -89,8 +202,8 @@ var screenEl = document.getElementById('screen');
 function present() {
     var html = '';
     var lastCol = -1;
-    for (var y=0; y<SH; y++){
-        for (var x=0; x<SW; x++){
+    for (var y = 0; y < SH; y++){
+        for (var x = 0; x < SW; x++){
             var c = col[y][x];
             if (c !== lastCol){
                 if (lastCol >= 0) html += '</span>';
@@ -122,11 +235,41 @@ window.addEventListener('keyup', function(e){
 });
 window.addEventListener('blur', function(){ keysDown = {}; });
 
+/* 虚拟按键绑定 */
+(function bindMobileControls(){
+    var buttons = document.querySelectorAll('#mobile-controls .btn');
+    for (var i = 0; i < buttons.length; i++) {
+        (function(btn){
+            var code = btn.getAttribute('data-key');
+            var press = function(e){
+                e.preventDefault();
+                keysDown[code] = true;
+                btn.classList.add('pressed');
+            };
+            var release = function(e){
+                if (e) e.preventDefault();
+                keysDown[code] = false;
+                btn.classList.remove('pressed');
+            };
+            btn.addEventListener('touchstart',  press,   {passive:false});
+            btn.addEventListener('touchend',    release, {passive:false});
+            btn.addEventListener('touchcancel', release, {passive:false});
+            btn.addEventListener('mousedown', press);
+            btn.addEventListener('mouseup',   release);
+            btn.addEventListener('mouseleave', release);
+        })(buttons[i]);
+    }
+})();
+
+/* 禁止双指缩放和双击缩放 */
+document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+document.addEventListener('dblclick', function(e){ e.preventDefault(); }, {passive:false});
+
 var keyCur = [false,false,false,false,false,false,false,false];
 var keyPrev = [false,false,false,false,false,false,false,false];
 
 function pollKeys() {
-    for (var i=0;i<8;i++) keyPrev[i] = keyCur[i];
+    for (var i = 0; i < 8; i++) keyPrev[i] = keyCur[i];
     keyCur[K_LEFT]  = !!(keysDown['KeyA'] || keysDown['ArrowLeft']);
     keyCur[K_RIGHT] = !!(keysDown['KeyD'] || keysDown['ArrowRight']);
     keyCur[K_JUMP]  = !!(keysDown['KeyW'] || keysDown['ArrowUp'] || keysDown['Space']);
@@ -152,6 +295,15 @@ function createPlayer() {
         skillICD:0, skillIFlash:0,
         invulnTimer:0, score:0, charType:0,
         chargeTimer:0, chargeFlash:0,
+        /* 悟空锁敌五连 */
+        skillICombo:0, skillITimer:0, skillITargetIdx:-1,
+        skillITargetX:0, skillITargetY:0,
+        /* 八戒刺球 */
+        spikeballTimer:0, spikeballFired:0, spikeballHitCd:0,
+        /* 装备 */
+        hasWeapon:0, hasArmor:0, hasTrinket:0,
+        shield:0, shieldMax:0, outOfCombatTimer:0,
+        /* 增益 */
         buffCount:0, atkBonus:0,
         dmgMul:1, moveMul:1, cdMul:1,
         dmgReduce:1, projMul:1, atkSpdMul:1,
@@ -178,9 +330,13 @@ var buffOptions = [0,0,0];
 var buffSel = 0, buffDelay = 0;
 var charSel = 0, selectedChar = 0, stageSel = 0;
 
-var stageCleared = [0,0,0];
+var stageCleared = [0,0,0,0];
 var maxUnlockedStage = 0;
 var bonusHP = 0, bonusMP = 0, bonusATK = 0;
+var equipmentUnlocked = 0;
+
+var finalBossPhase = 0;
+var finalBossTimer = 0;
 
 /* ============================================================
  *                        存档
@@ -195,6 +351,7 @@ function loadProgress() {
         if (typeof d.bonusHP === 'number') bonusHP = d.bonusHP;
         if (typeof d.bonusMP === 'number') bonusMP = d.bonusMP;
         if (typeof d.bonusATK === 'number') bonusATK = d.bonusATK;
+        if (typeof d.equipmentUnlocked === 'number') equipmentUnlocked = d.equipmentUnlocked;
     } catch(e){}
 }
 function saveProgress() {
@@ -204,7 +361,8 @@ function saveProgress() {
             maxUnlockedStage: maxUnlockedStage,
             bonusHP: bonusHP,
             bonusMP: bonusMP,
-            bonusATK: bonusATK
+            bonusATK: bonusATK,
+            equipmentUnlocked: equipmentUnlocked
         }));
     } catch(e){}
 }
@@ -258,9 +416,9 @@ function applyBuff(id) {
 
 function prepareBuffSelection() {
     var pool = [];
-    for (var i=0;i<BUFF_COUNT;i++) pool.push(i);
-    for (var j=BUFF_COUNT-1;j>0;j--){
-        var k = Math.floor(Math.random()*(j+1));
+    for (var i = 0; i < BUFF_COUNT; i++) pool.push(i);
+    for (var j = BUFF_COUNT - 1; j > 0; j--){
+        var k = Math.floor(Math.random() * (j + 1));
         var t = pool[j]; pool[j] = pool[k]; pool[k] = t;
     }
     buffOptions[0] = pool[0]; buffOptions[1] = pool[1]; buffOptions[2] = pool[2];
@@ -293,18 +451,22 @@ function spawnEnemy(type, x, scale) {
     if (enemies.length >= MAXENEMY) return;
     var hp, dmg, spd;
     switch(type) {
-        case 0: hp=30;  dmg=5;  spd=0.60; break;
-        case 1: hp=70;  dmg=9;  spd=0.45; break;
-        case 2: hp=260; dmg=14; spd=0.50; break;
-        case 3: hp=340; dmg=16; spd=0.55; break;
-        case 4: hp=420; dmg=18; spd=0.50; break;
-        case 5: hp=560; dmg=22; spd=0.55; break;
-        case 6: hp=360; dmg=16; spd=0.55; break;
-        case 7: hp=360; dmg=16; spd=0.55; break;
-        case 8: hp=600; dmg=20; spd=0.50; break;
-        default: hp=30; dmg=5; spd=0.60; break;
+        case 0: hp=50;  dmg=7;  spd=0.65; break;
+        case 1: hp=110; dmg=12; spd=0.50; break;
+        case 2: hp=350; dmg=18; spd=0.55; break;
+        case 3: hp=440; dmg=21; spd=0.60; break;
+        case 4: hp=540; dmg=23; spd=0.55; break;
+        case 5: hp=720; dmg=28; spd=0.60; break;
+        case 6: hp=460; dmg=20; spd=0.60; break;
+        case 7: hp=460; dmg=20; spd=0.60; break;
+        case 8: hp=780; dmg=26; spd=0.55; break;
+        case 9: hp=400; dmg=18; spd=0.75; break;
+        case 10:hp=550; dmg=22; spd=0.60; break;
+        case 11:hp=550; dmg=22; spd=0.60; break;
+        case 12:hp=900; dmg=30; spd=0.55; break;
+        default: hp=50; dmg=7; spd=0.65; break;
     }
-    var e = {
+    enemies.push({
         x: x, y: GROUND_Y, vx: 0,
         hp: Math.floor(hp * scale),
         maxhp: Math.floor(hp * scale),
@@ -317,18 +479,20 @@ function spawnEnemy(type, x, scale) {
         barrageCd: type >= 3 ? (70 + Math.floor(Math.random()*50)) : (130 + Math.floor(Math.random()*50)),
         barragePattern: 0,
         phase: 0, phase2Triggered: 0
-    };
-    enemies.push(e);
+    });
 }
 
 function initLevel(lv) {
     enemies = [];
     projs = [];
     level = lv;
+    finalBossPhase = 0;
+    finalBossTimer = 0;
 
-    if (lv < STAGE_BASE[1]) currentStage = 0;
+    if (lv < STAGE_BASE[1])      currentStage = 0;
     else if (lv < STAGE_BASE[2]) currentStage = 1;
-    else currentStage = 2;
+    else if (lv < STAGE_BASE[3]) currentStage = 2;
+    else                          currentStage = 3;
 
     var pos = lv - STAGE_BASE[currentStage];
     var sc = 1.0 + lv * 0.08;
@@ -340,7 +504,7 @@ function initLevel(lv) {
             spawnEnemy(0, 60, sc); spawnEnemy(1, 100, sc);
         } else {
             n = 2 + Math.floor(lv/3); if (n > 5) n = 5;
-            for (i=0;i<n;i++) spawnEnemy(i % 4 === 3 ? 1 : 0, 40 + i*32, sc);
+            for (i = 0; i < n; i++) spawnEnemy(i%4 === 3 ? 1 : 0, 40 + i*32, sc);
         }
     } else if (currentStage === 1) {
         if (pos === 6) {
@@ -354,16 +518,34 @@ function initLevel(lv) {
             spawnEnemy(1, 60, sc); spawnEnemy(1, 100, sc); spawnEnemy(1, 185, sc);
         } else {
             n = 3 + Math.floor(pos/5); if (n > 6) n = 6;
-            for (i=0;i<n;i++) spawnEnemy(i % 3 === 0 ? 0 : 1, 40 + i*28, sc);
+            for (i = 0; i < n; i++) spawnEnemy(i%3 === 0 ? 0 : 1, 40 + i*28, sc);
         }
-    } else {
+    } else if (currentStage === 2) {
         if (pos === 6) {
             spawnEnemy(6, 110, 1); spawnEnemy(7, 170, 1);
         } else if (pos === 13) {
             spawnEnemy(8, 140, 1);
         } else {
             n = 3 + Math.floor(pos/4); if (n > 6) n = 6;
-            for (i=0;i<n;i++) spawnEnemy(i % 4 === 0 ? 0 : 1, 40 + i*28, sc);
+            for (i = 0; i < n; i++) spawnEnemy(i%4 === 0 ? 0 : 1, 40 + i*28, sc);
+        }
+    } else {
+        if (pos === 4) {
+            spawnEnemy(9, 140, 1);
+            spawnEnemy(0, 60, sc); spawnEnemy(1, 100, sc);
+        } else if (pos === 9) {
+            spawnEnemy(10, 140, 1);
+            spawnEnemy(1, 60, sc); spawnEnemy(1, 100, sc);
+        } else if (pos === 14) {
+            spawnEnemy(11, 140, 1);
+            spawnEnemy(1, 60, sc); spawnEnemy(1, 100, sc);
+        } else if (pos === 19) {
+            spawnEnemy(10, 110, 1.15);
+            spawnEnemy(11, 170, 1.15);
+            finalBossPhase = 0;
+        } else {
+            n = 3 + Math.floor(pos/3); if (n > 6) n = 6;
+            for (i = 0; i < n; i++) spawnEnemy(i%3 === 0 ? 0 : 1, 40 + i*28, sc);
         }
     }
 
@@ -384,6 +566,18 @@ function enterStage(stage) {
     pl.atkBonus = bonusATK;
     pl.dmgMul = 1; pl.moveMul = 1; pl.cdMul = 1;
     pl.dmgReduce = 1; pl.projMul = 1; pl.atkSpdMul = 1;
+
+    if (equipmentUnlocked) {
+        pl.hasWeapon = 1;
+        pl.hasArmor = 1;
+        pl.hasTrinket = 1;
+        pl.atkBonus += 3;
+        pl.shieldMax = 30;
+        pl.shield = 0;
+        pl.critChance = 5;
+        pl.outOfCombatTimer = 0;
+    }
+
     camX = 0; dashId = 0;
     currentStage = stage;
     initLevel(STAGE_BASE[stage]);
@@ -394,7 +588,7 @@ function enterStage(stage) {
  *                        弹幕
  * ============================================================ */
 function spawnProjRaw(x, y, vx, vy, dmg, owner, pierce, color, shape) {
-    for (var i=0;i<MAXPROJ;i++) {
+    for (var i = 0; i < MAXPROJ; i++) {
         if (i >= projs.length || !projs[i].alive) {
             var p = {
                 x:x, y:y, vx:vx, vy:vy,
@@ -446,6 +640,41 @@ function damageEnemy(e, dmg, dir, kb) {
     }
 }
 
+function damagePlayer(dmg) {
+    if (pl.invulnTimer > 0) return;
+    if (pl.hurtTimer > 0) return;
+
+    /* 八戒刺球：反弹 90% */
+    if (pl.spikeballTimer > 0) {
+        var reflect = Math.floor(dmg * 0.9);
+        if (reflect < 1) reflect = 1;
+        var best = -1, bestD = 30.0;
+        for (var i = 0; i < enemies.length; i++) {
+            if (!enemies[i].alive) continue;
+            var d = Math.abs(enemies[i].x - pl.x);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best >= 0) {
+            damageEnemy(enemies[best], reflect, enemies[best].x > pl.x ? 1 : -1, 3.0);
+        }
+    }
+
+    /* 护盾吸收 */
+    if (pl.hasArmor && pl.shield > 0) {
+        var absorb = dmg;
+        if (absorb > pl.shield) absorb = pl.shield;
+        pl.shield -= absorb;
+        dmg -= Math.floor(absorb);
+        if (pl.shield < 0) pl.shield = 0;
+    }
+
+    if (dmg > 0) pl.hp -= dmg;
+    pl.hurtTimer = 28;
+    pl.outOfCombatTimer = 90;
+
+    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+}
+
 /* ============================================================
  *                        普攻
  * ============================================================ */
@@ -469,7 +698,7 @@ function attackWukong() {
     pl.comboTimer = 26;
     var dmg = Math.floor((base + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
 
-    for (var i=0;i<enemies.length;i++) {
+    for (var i = 0; i < enemies.length; i++) {
         var e = enemies[i];
         if (!e.alive) continue;
         var dx = e.x - pl.x;
@@ -494,7 +723,7 @@ function attackShawujing() {
     pl.comboTimer = 26;
     var total = Math.floor((dmg + pl.atkBonus) * pl.dmgMul * pl.projMul); if (total < 1) total = 1;
 
-    for (var k=0;k<num;k++) {
+    for (var k = 0; k < num; k++) {
         var dy = (k === 0) ? 0 : ((k === 1) ? -0.5 : 0.5);
         spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5 + dy*0.4,
                   pl.facing*4.0, dy*0.3,
@@ -516,7 +745,7 @@ function attackBajie() {
     pl.comboTimer = 28;
     var dmg = Math.floor((base + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
 
-    for (var i=0;i<enemies.length;i++) {
+    for (var i = 0; i < enemies.length; i++) {
         var e = enemies[i];
         if (!e.alive) continue;
         var dx = e.x - pl.x;
@@ -532,33 +761,46 @@ function attackBajie() {
 }
 
 /* ============================================================
- *                        技能
+ *                        悟空技能
  * ============================================================ */
 function skillKWukong() {
-    var dmg = Math.floor((22 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
-    for (var k=0;k<3;k++) {
-        var vy = (k-1) * 0.55;
-        spawnProj(pl.x + pl.facing*2.0, pl.y - 1.5,
-                  pl.facing*3.2, vy, dmg, 0, pl.pierceBonus, 1, '@');
-    }
-}
-
-function skillIWukong() {
-    pl.mp -= 50;
-    pl.skillICD = Math.floor(80 * pl.cdMul); if (pl.skillICD < 22) pl.skillICD = 22;
-    pl.skillIFlash = 24;
-    pl.invulnTimer = 24;
-    var dmg = Math.floor((80 + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
-    for (var i=0;i<enemies.length;i++) {
+    var dmg = Math.floor((36 + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
+    var range = 8.5;
+    pl.atkAnim = 12;
+    for (var i = 0; i < enemies.length; i++) {
         var e = enemies[i];
         if (!e.alive) continue;
-        if (Math.abs(e.x - pl.x) < 20.0) {
-            damageEnemy(e, dmg, (e.x > pl.x) ? 1 : -1, 5.5);
-            e.stunTimer = 48;
-        }
+        var dx = e.x - pl.x;
+        if (Math.abs(dx) > 0.4 && dx * pl.facing < 0) continue;
+        if (Math.abs(dx) > range) continue;
+        if (Math.abs(e.y - pl.y) > 4.0) continue;
+        damageEnemy(e, dmg, pl.facing, 4.0);
     }
 }
 
+function startSkillIWukong() {
+    var best = -1, bestD = 20.0;
+    for (var i = 0; i < enemies.length; i++) {
+        if (!enemies[i].alive) continue;
+        var d = Math.abs(enemies[i].x - pl.x);
+        if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best < 0) return;
+
+    pl.mp -= 50;
+    pl.skillICD = Math.floor(110 * pl.cdMul); if (pl.skillICD < 30) pl.skillICD = 30;
+    pl.invulnTimer = 60;
+    pl.skillICombo = 5;
+    pl.skillITimer = 0;
+    pl.skillITargetIdx = best;
+    pl.skillITargetX = enemies[best].x;
+    pl.skillITargetY = enemies[best].y;
+    pl.skillIFlash = 12;
+}
+
+/* ============================================================
+ *                        沙僧技能
+ * ============================================================ */
 function skillKShawujing() {
     var dmg = Math.floor((22 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
     spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.5, 0, dmg, 0, pl.pierceBonus, 6, '>');
@@ -577,6 +819,9 @@ function shawujingFireBigArrow() {
               pl.facing*6.0, 0, dmg, 0, 12 + pl.pierceBonus, 3, '=');
 }
 
+/* ============================================================
+ *                        八戒技能
+ * ============================================================ */
 function skillKBajie() {
     var dmg = Math.floor((40 + pl.atkBonus) * pl.dmgMul * pl.projMul); if (dmg < 1) dmg = 1;
     var idx = spawnProjRaw(pl.x + pl.facing*2.0, pl.y - 1.5,
@@ -600,24 +845,44 @@ function startBajieU() {
     dashId++;
 }
 
-function skillIBajie() {
+function startBajieSpikeball() {
     pl.mp -= 50;
-    pl.skillICD = Math.floor(100 * pl.cdMul); if (pl.skillICD < 30) pl.skillICD = 30;
-    pl.skillIFlash = 28;
-    pl.invulnTimer = 26;
-    var dmg = Math.floor((90 + pl.atkBonus) * pl.dmgMul); if (dmg < 1) dmg = 1;
-    for (var i=0;i<enemies.length;i++) {
-        var e = enemies[i];
-        if (!e.alive) continue;
-        if (Math.abs(e.x - pl.x) < 22.0) {
-            damageEnemy(e, dmg, (e.x > pl.x) ? 1 : -1, 7.0);
-            e.stunTimer = 75;
+    pl.skillICD = Math.floor(180 * pl.cdMul); if (pl.skillICD < 60) pl.skillICD = 60;
+    pl.spikeballTimer = 150;
+    pl.spikeballFired = 0;
+    pl.spikeballHitCd = 0;
+    pl.invulnTimer = 150;
+    pl.atkAnim = 0;
+    pl.dashTimer = 0;
+}
+
+function bajieFireSpikes() {
+    var aliveCount = 0;
+    for (var i = 0; i < enemies.length; i++) if (enemies[i].alive) aliveCount++;
+    if (aliveCount === 0) return;
+
+    for (var k = 0; k < 5; k++) {
+        var target = -1, cnt = 0;
+        for (var i2 = 0; i2 < enemies.length; i2++) {
+            if (!enemies[i2].alive) continue;
+            if (cnt === (k % aliveCount)) { target = i2; break; }
+            cnt++;
         }
+        if (target < 0) target = 0;
+        var dmg = Math.floor((45 + pl.atkBonus) * pl.dmgMul);
+        if (dmg < 1) dmg = 1;
+        var dx = enemies[target].x - pl.x;
+        var dy = (enemies[target].y - 1.5) - (pl.y - 1.5);
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.5) dist = 0.5;
+        spawnProj(pl.x, pl.y - 1.5,
+                  dx/dist * 5.0, dy/dist * 5.0,
+                  dmg, 0, 0, 3, '*');
     }
 }
 
 /* ============================================================
- *                        敌人 AI
+ *                        敌人弹幕
  * ============================================================ */
 function enemyBarrage(e) {
     var dmg = Math.floor(e.dmg * 0.7); if (dmg < 1) dmg = 1;
@@ -627,13 +892,13 @@ function enemyBarrage(e) {
             spawnProj(e.x, e.y - 1.5, e.facing*2.5, 0, dmg, 1, 0, 7, 'X');
             break;
         case 3:
-            for (i=-1;i<=1;i++) spawnProj(e.x, e.y - 1.5, i*0.8, 0, dmg, 1, 0, 1, '*');
+            for (i = -1; i <= 1; i++) spawnProj(e.x, e.y - 1.5, i*0.8, 0, dmg, 1, 0, 1, '*');
             break;
         case 4:
-            for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 1.5, i*0.6, -0.2 + i*0.1, dmg, 1, 0, 6, '/');
+            for (i = -2; i <= 2; i++) spawnProj(e.x, e.y - 1.5, i*0.6, -0.2 + i*0.1, dmg, 1, 0, 6, '/');
             break;
         case 5:
-            for (i=0;i<8;i++) {
+            for (i = 0; i < 8; i++) {
                 var a = i * Math.PI / 4;
                 spawnProj(e.x, e.y - 2.0, Math.cos(a)*1.8, Math.sin(a)*1.2, dmg, 1, 0, 5, 'O');
             }
@@ -643,25 +908,25 @@ function enemyBarrage(e) {
             spawnProj(e.x, e.y - 2.0, e.facing*2.8,  0.4, dmg, 1, 0, 3, 'o');
             break;
         case 7:
-            for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 7, '*');
+            for (i = -2; i <= 2; i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 7, '*');
             break;
         case 8:
             if (e.phase === 0) {
                 if (e.barragePattern === 0) {
                     spawnProj(e.x, e.y - 2.0, e.facing*2.5, 0, dmg, 1, 0, 5, '*');
                 } else {
-                    for (i=-1;i<=1;i++) spawnProj(e.x, e.y - 2.0, i*0.9, 0, dmg, 1, 0, 5, '*');
+                    for (i = -1; i <= 1; i++) spawnProj(e.x, e.y - 2.0, i*0.9, 0, dmg, 1, 0, 5, '*');
                 }
                 e.barragePattern = 1 - e.barragePattern;
             } else {
                 var pat = e.barragePattern % 3;
                 if (pat === 0) {
-                    for (i=0;i<8;i++) {
+                    for (i = 0; i < 8; i++) {
                         var a2 = i * Math.PI / 4;
                         spawnProj(e.x, e.y - 2.0, Math.cos(a2)*1.9, Math.sin(a2)*1.3, dmg, 1, 0, 5, 'O');
                     }
                 } else if (pat === 1) {
-                    for (i=-2;i<=2;i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 4, '*');
+                    for (i = -2; i <= 2; i++) spawnProj(e.x, e.y - 2.0, i*0.7, i*0.1, dmg, 1, 0, 4, '*');
                 } else {
                     spawnProj(e.x, e.y - 2.0, e.facing*3.2, 0, dmg, 1, 0, 5, '>');
                     spawnProj(e.x, e.y - 3.2, e.facing*3.2, 0, dmg, 1, 0, 5, '>');
@@ -669,11 +934,267 @@ function enemyBarrage(e) {
                 e.barragePattern++;
             }
             break;
+        case 9:
+            dmg = Math.floor(e.dmg * 0.8); if (dmg < 1) dmg = 1;
+            for (i = -2; i <= 2; i++)
+                spawnProj(e.x, e.y - 2.0, i*0.9, 0.5 + i*0.2, dmg, 1, 0, 6, 'w');
+            break;
+        case 10:
+            dmg = Math.floor(e.dmg * 0.75); if (dmg < 1) dmg = 1;
+            for (i = -3; i <= 3; i++)
+                spawnProj(e.x, e.y - 2.0, i*0.8, -0.3 + i*0.1, dmg, 1, 0, 6, '*');
+            break;
+        case 11:
+            dmg = Math.floor(e.dmg * 0.75); if (dmg < 1) dmg = 1;
+            for (i = -2; i <= 2; i++) {
+                var ang = i * 0.35;
+                spawnProj(e.x, e.y - 2.0, e.facing*2.0*Math.cos(ang), Math.sin(ang)*1.5, dmg, 1, 0, 1, 'F');
+            }
+            break;
+        case 12:
+            dmg = Math.floor(e.dmg * 0.75); if (dmg < 1) dmg = 1;
+            var pat12 = e.barragePattern % 3;
+            if (pat12 === 0) {
+                for (i = 0; i < 16; i++) {
+                    var ang2 = i * Math.PI / 8;
+                    spawnProj(e.x, e.y - 2.0, Math.cos(ang2)*2.0, Math.sin(ang2)*1.5, dmg, 1, 0, 5, 'O');
+                }
+            } else if (pat12 === 1) {
+                for (i = -3; i <= 3; i++) {
+                    var dx = pl.x - e.x;
+                    var dy = (pl.y - 1.5) - (e.y - 2.0);
+                    var d = Math.sqrt(dx*dx + dy*dy); if (d < 0.5) d = 0.5;
+                    spawnProj(e.x, e.y - 2.0,
+                              dx/d * 2.5 + i*0.3,
+                              dy/d * 2.5 + i*0.2,
+                              dmg, 1, 0, 3, 'X');
+                }
+            } else {
+                spawnProj(e.x, e.y - 2.0, e.facing*3.5, 0, dmg, 1, 0, 5, '>');
+                spawnProj(e.x, e.y - 3.5, e.facing*3.5, 0, dmg, 1, 0, 5, '>');
+                spawnProj(e.x, e.y - 5.0, e.facing*3.5, 0, dmg, 1, 0, 5, '>');
+            }
+            e.barragePattern++;
+            break;
     }
 }
 
+/* ============================================================
+ *                        玩家更新
+ * ============================================================ */
+function updatePlayer() {
+    if (pl.hurtTimer > 0) pl.hurtTimer--;
+    if (pl.atkCd > 0) pl.atkCd--;
+    if (pl.atkAnim > 0) pl.atkAnim--;
+    if (pl.skillCd > 0) pl.skillCd--;
+    if (pl.skillUCD > 0) pl.skillUCD--;
+    if (pl.skillICD > 0) pl.skillICD--;
+    if (pl.invulnTimer > 0) pl.invulnTimer--;
+    if (pl.skillIFlash > 0) pl.skillIFlash--;
+    if (pl.chargeFlash > 0) pl.chargeFlash--;
+    if (pl.spikeballHitCd > 0) pl.spikeballHitCd--;
+    if (pl.comboTimer > 0) {
+        pl.comboTimer--;
+        if (pl.comboTimer === 0) pl.comboStep = 0;
+    }
+
+    /* 无战斗计时 & 护盾回复 */
+    if (pl.outOfCombatTimer > 0) pl.outOfCombatTimer--;
+    if (pl.hasArmor && pl.shield < pl.shieldMax && pl.outOfCombatTimer <= 0) {
+        if (frame % 3 === 0) {
+            pl.shield += 1.0;
+            if (pl.shield > pl.shieldMax) pl.shield = pl.shieldMax;
+        }
+    }
+    {
+        var shieldRegening = pl.hasArmor && pl.shield < pl.shieldMax && pl.outOfCombatTimer <= 0;
+        var mpi = (pl.mpRegen > 0) ? pl.mpRegen : 22;
+        if (frame % mpi === 0 && pl.mp < pl.maxmp) pl.mp++;
+        if (pl.hpRegen > 0 && !shieldRegening && frame % pl.hpRegen === 0 && pl.hp > 0 && pl.hp < pl.maxhp) {
+            pl.hp++;
+        }
+    }
+
+    /* 八戒刺球形态 */
+    if (pl.spikeballTimer > 0) {
+        pl.spikeballTimer--;
+        pl.vx = 0;
+        if (pl.spikeballHitCd <= 0) {
+            var hitAny = 0;
+            for (var i = 0; i < enemies.length; i++) {
+                var e = enemies[i];
+                if (!e.alive) continue;
+                if (Math.abs(e.x - pl.x) < 3.0 && Math.abs(e.y - pl.y) < 3.5) {
+                    var dmg = Math.floor((25 + pl.atkBonus) * pl.dmgMul);
+                    if (dmg < 1) dmg = 1;
+                    damageEnemy(e, dmg, e.x > pl.x ? 1 : -1, 4.0);
+                    hitAny = 1;
+                }
+            }
+            if (hitAny) pl.spikeballHitCd = 15;
+        }
+        if (pl.spikeballTimer === 0 && !pl.spikeballFired) {
+            pl.spikeballFired = 1;
+            bajieFireSpikes();
+        }
+        pl.vy += GRAV;
+        if (pl.vy > MAXFALL) pl.vy = MAXFALL;
+        pl.y += pl.vy;
+        if (pl.y >= GROUND_Y) { pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1; }
+        return;
+    }
+
+    /* 悟空 I 锁敌五连 */
+    if (pl.skillICombo > 0) {
+        if (pl.skillITargetIdx >= 0 && pl.skillITargetIdx < enemies.length &&
+            enemies[pl.skillITargetIdx].alive) {
+            pl.skillITargetX = enemies[pl.skillITargetIdx].x;
+            pl.skillITargetY = enemies[pl.skillITargetIdx].y;
+        }
+        if (pl.skillITimer > 0) pl.skillITimer--;
+        if (pl.skillITimer <= 0) {
+            var dmg2 = Math.floor((38 + pl.atkBonus) * pl.dmgMul);
+            if (dmg2 < 1) dmg2 = 1;
+            for (var j = 0; j < enemies.length; j++) {
+                var e2 = enemies[j];
+                if (!e2.alive) continue;
+                if (Math.abs(e2.x - pl.skillITargetX) < 6.0 &&
+                    Math.abs(e2.y - pl.skillITargetY) < 5.0) {
+                    damageEnemy(e2, dmg2, e2.x > pl.x ? 1 : -1, 3.0);
+                }
+            }
+            pl.skillICombo--;
+            pl.skillITimer = 6;
+            pl.skillIFlash = 8;
+            if (pl.skillICombo === 0) pl.skillITargetIdx = -1;
+        }
+        pl.vy += GRAV;
+        if (pl.vy > MAXFALL) pl.vy = MAXFALL;
+        pl.y += pl.vy;
+        if (pl.y >= GROUND_Y) { pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1; }
+        return;
+    }
+
+    /* 沙僧蓄力 */
+    if (pl.charType === CHAR_SHAWUJING) {
+        if (pl.chargeTimer > 0) {
+            if (!keyCur[K_I]) {
+                if (pl.chargeTimer >= CHARGE_MAX / 2) {
+                    var dmg3 = Math.floor((60 + pl.atkBonus) * pl.dmgMul * pl.projMul);
+                    if (dmg3 < 1) dmg3 = 1;
+                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*5.0, 0,
+                              dmg3, 0, 3 + pl.pierceBonus, 6, '>');
+                }
+                pl.chargeTimer = 0;
+            } else {
+                pl.chargeTimer++;
+                if (pl.chargeTimer >= CHARGE_MAX) shawujingFireBigArrow();
+            }
+        } else {
+            if (keyEdge(K_I) && pl.mp >= 50 && pl.skillICD <= 0) pl.chargeTimer = 1;
+        }
+    }
+
+    var canMove = (pl.atkAnim === 0) && (pl.dashTimer === 0) && (pl.chargeTimer === 0);
+
+    /* U 技能 */
+    if (keyEdge(K_U) && pl.skillUCD <= 0 && pl.mp >= 25 && pl.dashTimer === 0) {
+        if (pl.charType === CHAR_BAJIE) {
+            startBajieU();
+        } else {
+            pl.mp -= 25;
+            pl.skillUCD = Math.floor(45 * pl.cdMul); if (pl.skillUCD < 12) pl.skillUCD = 12;
+            if (pl.charType === CHAR_WUKONG) {
+                pl.dashTimer = 22;
+                pl.dashVx = pl.facing * 3.4;
+                pl.invulnTimer = 20;
+            } else {
+                pl.dashTimer = 14;
+                pl.dashVx = -pl.facing * 3.5;
+                pl.invulnTimer = 18;
+                var dmgA = Math.floor((28 + pl.atkBonus) * pl.dmgMul * pl.projMul);
+                if (dmgA < 1) dmgA = 1;
+                for (var k = -1; k <= 1; k++) {
+                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.0, k*0.6,
+                              dmgA, 0, pl.pierceBonus, 6, '>');
+                }
+            }
+            pl.atkAnim = 0;
+            dashId++;
+        }
+    }
+
+    /* I 技能 */
+    if (keyEdge(K_I) && pl.skillICD <= 0 && pl.mp >= 50) {
+        if (pl.charType === CHAR_WUKONG) startSkillIWukong();
+        else if (pl.charType === CHAR_BAJIE) startBajieSpikeball();
+    }
+
+    /* 冲刺位移 */
+    if (pl.dashTimer > 0) {
+        pl.dashTimer--;
+        pl.x += pl.dashVx;
+        pl.dashVx *= 0.90;
+
+        if (pl.charType !== CHAR_SHAWUJING) {
+            for (var m = 0; m < enemies.length; m++) {
+                var em = enemies[m];
+                if (!em.alive || em.lastDashHit === dashId) continue;
+                if (Math.abs(em.x - pl.x) < 3.0 && Math.abs(em.y - pl.y) < 4.0) {
+                    em.lastDashHit = dashId;
+                    var dm = Math.floor((32 + pl.atkBonus) * pl.dmgMul);
+                    damageEnemy(em, dm, pl.facing, 4.5);
+                    if (pl.charType === CHAR_WUKONG) em.stunTimer = 32;
+                    if (pl.charType === CHAR_BAJIE) em.vx = pl.facing * 5.0;
+                }
+            }
+        }
+    } else {
+        var mv = 0;
+        if (canMove) {
+            if (keyCur[K_LEFT])  { mv -= 1.0; pl.facing = -1; }
+            if (keyCur[K_RIGHT]) { mv += 1.0; pl.facing = 1; }
+        }
+        if (pl.chargeTimer > 0) mv *= 0.25;
+        var spd = MOVESPD * pl.moveMul;
+        if (pl.charType === CHAR_BAJIE) spd *= 0.85;
+        pl.x += mv * spd;
+    }
+
+    if (canMove && keyEdge(K_JUMP) && pl.onGround) {
+        pl.vy = JUMPV; pl.onGround = 0;
+    }
+
+    if (canMove && keyEdge(K_ATK) && pl.atkCd <= 0) playerAttack();
+
+    if (canMove && keyEdge(K_SKILL) && pl.skillCd <= 0 && pl.mp >= 20) {
+        pl.mp -= 20;
+        pl.skillCd = Math.floor(22 * pl.cdMul); if (pl.skillCd < 6) pl.skillCd = 6;
+        if      (pl.charType === CHAR_WUKONG)    skillKWukong();
+        else if (pl.charType === CHAR_SHAWUJING) skillKShawujing();
+        else                                     skillKBajie();
+    }
+
+    pl.vy += GRAV;
+    if (pl.vy > MAXFALL) pl.vy = MAXFALL;
+    pl.y += pl.vy;
+    if (pl.y >= GROUND_Y) { pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1; }
+
+    pl.x += pl.kbvx;
+    pl.kbvx *= 0.85;
+    if (Math.abs(pl.kbvx) < 0.05) pl.kbvx = 0;
+
+    if (pl.x < 4) pl.x = 4;
+    if (pl.x > WORLD_W - 4) pl.x = WORLD_W - 4;
+
+    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+}
+
+/* ============================================================
+ *                        敌人更新
+ * ============================================================ */
 function updateEnemies() {
-    for (var i=0;i<enemies.length;i++) {
+    for (var i = 0; i < enemies.length; i++) {
         var e = enemies[i];
         if (!e.alive) continue;
 
@@ -686,6 +1207,7 @@ function updateEnemies() {
         e.vx *= 0.85;
         if (Math.abs(e.vx) < 0.05) e.vx = 0;
 
+        /* 镇元大仙阶段2 */
         if (e.type === 8 && !e.phase2Triggered && e.hp > 0 && e.hp <= e.maxhp / 2) {
             e.phase2Triggered = 1;
             e.phase = 1;
@@ -710,13 +1232,17 @@ function updateEnemies() {
                 var baseCd;
                 switch(e.type) {
                     case 2: baseCd = 130; break;
-                    case 3: baseCd = 90; break;
-                    case 4: baseCd = 85; break;
+                    case 3: baseCd = 90;  break;
+                    case 4: baseCd = 85;  break;
                     case 5: baseCd = 100; break;
-                    case 6: baseCd = 75; break;
-                    case 7: baseCd = 75; break;
+                    case 6: baseCd = 75;  break;
+                    case 7: baseCd = 75;  break;
                     case 8: baseCd = (e.phase === 0) ? 90 : 55; break;
-                    default: baseCd = 100;
+                    case 9: baseCd = 70;  break;
+                    case 10: baseCd = 75; break;
+                    case 11: baseCd = 75; break;
+                    case 12: baseCd = 60; break;
+                    default: baseCd = 100; break;
                 }
                 e.barrageCd = baseCd + Math.floor(Math.random()*30);
             }
@@ -726,21 +1252,18 @@ function updateEnemies() {
         var adist = Math.abs(dist);
 
         if (adist > 2.8) {
-            e.facing = (dist > 0) ? 1 : -1;
+            e.facing = dist > 0 ? 1 : -1;
             e.x += e.facing * e.speed;
         } else {
-            e.facing = (dist > 0) ? 1 : -1;
+            e.facing = dist > 0 ? 1 : -1;
             if (e.atkCd <= 0 && Math.abs(e.y - pl.y) < 3.5) {
                 e.atkCd = (e.type >= 2) ? 38 : 58;
                 e.atkAnim = 10;
                 if (pl.hurtTimer <= 0 && pl.invulnTimer <= 0) {
                     var dm = Math.floor(e.dmg * pl.dmgReduce);
-                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dm = Math.floor(dm/2);
+                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dm = Math.floor(dm / 2);
                     if (dm < 1) dm = 1;
-                    pl.hp -= dm;
-                    pl.hurtTimer = 28;
-                    pl.kbvx = e.facing * 2.0;
-                    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
+                    damagePlayer(dm);
                 }
             }
         }
@@ -755,7 +1278,7 @@ function updateEnemies() {
  *                        弹幕更新
  * ============================================================ */
 function updateProjs() {
-    for (var i=0;i<projs.length;i++) {
+    for (var i = projs.length - 1; i >= 0; i--) {
         var p = projs[i];
         if (!p.alive) continue;
 
@@ -763,7 +1286,7 @@ function updateProjs() {
             if (!p.returning) {
                 if (Math.abs(p.x - p.ox) > 14.0) {
                     p.returning = 1;
-                    for (var q=0;q<enemies.length;q++) enemies[q].lastProjHit = 0;
+                    for (var q = 0; q < enemies.length; q++) enemies[q].lastProjHit = 0;
                 }
             } else {
                 var dx = pl.x - p.x;
@@ -784,15 +1307,13 @@ function updateProjs() {
 
         if (p.owner === 0) {
             var killed = false;
-            for (var j=0;j<enemies.length;j++) {
+            for (var j = 0; j < enemies.length; j++) {
                 var e = enemies[j];
                 if (!e.alive) continue;
                 if (e.lastProjHit === p.id) continue;
-                var eCtrY = e.y - 1.0;
-                var xTol = 2.8, yTol = 3.5;
-                if (Math.abs(e.x - p.x) < xTol && Math.abs(eCtrY - p.y) < yTol) {
+                if (Math.abs(e.x - p.x) < 2.8 && Math.abs((e.y - 1.0) - p.y) < 3.5) {
                     e.lastProjHit = p.id;
-                    damageEnemy(e, p.dmg, (p.vx > 0) ? 1 : -1, 2.2);
+                    damageEnemy(e, p.dmg, p.vx > 0 ? 1 : -1, 2.2);
                     if (p.pierce > 0) p.pierce--;
                     else if (!p.boomerang) { killed = true; break; }
                 }
@@ -802,149 +1323,14 @@ function updateProjs() {
             if (pl.hurtTimer <= 0 && pl.invulnTimer <= 0) {
                 if (Math.abs(pl.x - p.x) < 2.2 && Math.abs((pl.y - 1.5) - p.y) < 3.0) {
                     var dmg = Math.floor(p.dmg * pl.dmgReduce);
-                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dmg = Math.floor(dmg/2);
+                    if (pl.charType === CHAR_BAJIE && pl.dashTimer > 0) dmg = Math.floor(dmg / 2);
                     if (dmg < 1) dmg = 1;
-                    pl.hp -= dmg;
-                    pl.hurtTimer = 24;
-                    pl.kbvx = (p.vx > 0) ? 1.5 : -1.5;
+                    damagePlayer(dmg);
                     p.alive = 0;
-                    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
                 }
             }
         }
     }
-}
-
-/* ============================================================
- *                        玩家更新
- * ============================================================ */
-function updatePlayer() {
-    if (pl.hurtTimer > 0) pl.hurtTimer--;
-    if (pl.atkCd > 0) pl.atkCd--;
-    if (pl.atkAnim > 0) pl.atkAnim--;
-    if (pl.skillCd > 0) pl.skillCd--;
-    if (pl.skillUCD > 0) pl.skillUCD--;
-    if (pl.skillICD > 0) pl.skillICD--;
-    if (pl.invulnTimer > 0) pl.invulnTimer--;
-    if (pl.skillIFlash > 0) pl.skillIFlash--;
-    if (pl.chargeFlash > 0) pl.chargeFlash--;
-    if (pl.comboTimer > 0) {
-        pl.comboTimer--;
-        if (pl.comboTimer === 0) pl.comboStep = 0;
-    }
-
-    var mpi = (pl.mpRegen > 0) ? pl.mpRegen : 22;
-    if (frame % mpi === 0 && pl.mp < pl.maxmp) pl.mp++;
-    if (pl.hpRegen > 0 && frame % pl.hpRegen === 0 && pl.hp > 0 && pl.hp < pl.maxhp) pl.hp++;
-
-    if (pl.charType === CHAR_SHAWUJING) {
-        if (pl.chargeTimer > 0) {
-            if (!keyCur[K_I]) {
-                if (pl.chargeTimer >= CHARGE_MAX / 2) {
-                    var dmg = Math.floor((60 + pl.atkBonus) * pl.dmgMul * pl.projMul);
-                    if (dmg < 1) dmg = 1;
-                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*5.0, 0,
-                              dmg, 0, 3 + pl.pierceBonus, 6, '>');
-                }
-                pl.chargeTimer = 0;
-            } else {
-                pl.chargeTimer++;
-                if (pl.chargeTimer >= CHARGE_MAX) shawujingFireBigArrow();
-            }
-        } else {
-            if (keyEdge(K_I) && pl.mp >= 50 && pl.skillICD <= 0) pl.chargeTimer = 1;
-        }
-    }
-
-    var canMove = (pl.atkAnim === 0) && (pl.dashTimer === 0) && (pl.chargeTimer === 0);
-
-    if (keyEdge(K_U) && pl.skillUCD <= 0 && pl.mp >= 25 && pl.dashTimer === 0) {
-        if (pl.charType === CHAR_BAJIE) {
-            startBajieU();
-        } else {
-            pl.mp -= 25;
-            pl.skillUCD = Math.floor(45 * pl.cdMul); if (pl.skillUCD < 12) pl.skillUCD = 12;
-            pl.dashTimer = 14;
-            if (pl.charType === CHAR_WUKONG) {
-                pl.dashVx = pl.facing * 3.2;
-                pl.invulnTimer = 14;
-            } else {
-                pl.dashVx = -pl.facing * 3.5;
-                pl.invulnTimer = 18;
-                var dmgA = Math.floor((28 + pl.atkBonus) * pl.dmgMul * pl.projMul);
-                if (dmgA < 1) dmgA = 1;
-                for (var k=-1;k<=1;k++) {
-                    spawnProj(pl.x + pl.facing*1.5, pl.y - 1.5, pl.facing*4.0, k*0.6,
-                              dmgA, 0, pl.pierceBonus, 6, '>');
-                }
-            }
-            pl.atkAnim = 0;
-            dashId++;
-        }
-    }
-
-    if (keyEdge(K_I) && pl.skillICD <= 0 && pl.mp >= 50) {
-        if (pl.charType === CHAR_WUKONG) skillIWukong();
-        else if (pl.charType === CHAR_BAJIE) skillIBajie();
-    }
-
-    if (pl.dashTimer > 0) {
-        pl.dashTimer--;
-        pl.x += pl.dashVx;
-        pl.dashVx *= 0.90;
-
-        if (pl.charType !== CHAR_SHAWUJING) {
-            for (var i=0;i<enemies.length;i++) {
-                var e = enemies[i];
-                if (!e.alive || e.lastDashHit === dashId) continue;
-                if (Math.abs(e.x - pl.x) < 3.0 && Math.abs(e.y - pl.y) < 4.0) {
-                    e.lastDashHit = dashId;
-                    var dm = Math.floor((32 + pl.atkBonus) * pl.dmgMul);
-                    damageEnemy(e, dm, pl.facing, 4.5);
-                    if (pl.charType === CHAR_WUKONG) e.stunTimer = 32;
-                    if (pl.charType === CHAR_BAJIE) e.vx = pl.facing * 5.0;
-                }
-            }
-        }
-    } else {
-        var mv = 0;
-        if (canMove) {
-            if (keyCur[K_LEFT]) { mv -= 1.0; pl.facing = -1; }
-            if (keyCur[K_RIGHT]) { mv += 1.0; pl.facing = 1; }
-        }
-        if (pl.chargeTimer > 0) mv *= 0.25;
-        var spd = MOVESPD * pl.moveMul;
-        if (pl.charType === CHAR_BAJIE) spd *= 0.85;
-        pl.x += mv * spd;
-    }
-
-    if (canMove && keyEdge(K_JUMP) && pl.onGround) {
-        pl.vy = JUMPV; pl.onGround = 0;
-    }
-
-    if (canMove && keyEdge(K_ATK) && pl.atkCd <= 0) playerAttack();
-
-    if (canMove && keyEdge(K_SKILL) && pl.skillCd <= 0 && pl.mp >= 20) {
-        pl.mp -= 20;
-        pl.skillCd = Math.floor(22 * pl.cdMul); if (pl.skillCd < 6) pl.skillCd = 6;
-        if (pl.charType === CHAR_WUKONG) skillKWukong();
-        else if (pl.charType === CHAR_SHAWUJING) skillKShawujing();
-        else skillKBajie();
-    }
-
-    pl.vy += GRAV;
-    if (pl.vy > MAXFALL) pl.vy = MAXFALL;
-    pl.y += pl.vy;
-    if (pl.y >= GROUND_Y) { pl.y = GROUND_Y; pl.vy = 0; pl.onGround = 1; }
-
-    pl.x += pl.kbvx;
-    pl.kbvx *= 0.85;
-    if (Math.abs(pl.kbvx) < 0.05) pl.kbvx = 0;
-
-    if (pl.x < 4) pl.x = 4;
-    if (pl.x > WORLD_W - 4) pl.x = WORLD_W - 4;
-
-    if (pl.hp <= 0) { pl.hp = 0; gameState = ST_OVER; }
 }
 
 function updateCamera() {
@@ -954,9 +1340,50 @@ function updateCamera() {
     camX += (target - camX) * 0.18;
 }
 
+/* ============================================================
+ *                        过关判定
+ * ============================================================ */
 function checkLevelClear() {
     var alive = 0;
-    for (var i=0;i<enemies.length;i++) if (enemies[i].alive) alive++;
+    for (var i = 0; i < enemies.length; i++) if (enemies[i].alive) alive++;
+    var isFinalBoss = (currentStage === 3 && (level - STAGE_BASE[3]) === STAGE3_LEN - 1);
+
+    if (isFinalBoss) {
+        if (finalBossPhase === 0 && alive === 0) {
+            finalBossPhase = 1;
+            finalBossTimer = 90;
+            levelCleared = 0;
+            levelClearTimer = 0;
+            return;
+        }
+        if (finalBossPhase === 1) {
+            finalBossTimer--;
+            if (finalBossTimer <= 0) {
+                spawnEnemy(12, 140, 1.0);
+                finalBossPhase = 2;
+                for (var j = 0; j < enemies.length; j++) {
+                    if (enemies[j].type === 10 || enemies[j].type === 11) enemies[j].alive = 0;
+                }
+            }
+            return;
+        }
+        if (finalBossPhase === 2 && alive === 0 && !levelCleared) {
+            levelCleared = 1;
+            levelClearTimer = 55;
+        }
+        if (levelCleared) {
+            levelClearTimer--;
+            if (levelClearTimer <= 0) {
+                if (!stageCleared[currentStage]) {
+                    stageCleared[currentStage] = 1;
+                    saveProgress();
+                }
+                gameState = ST_STAGECLEAR;
+            }
+        }
+        return;
+    }
+
     if (alive === 0 && !levelCleared) {
         levelCleared = 1;
         levelClearTimer = 55;
@@ -976,6 +1403,10 @@ function checkLevelClear() {
                     } else if (currentStage === 1) {
                         bonusHP += 50; bonusMP += 50; bonusATK += 10;
                         if (maxUnlockedStage < 2) maxUnlockedStage = 2;
+                    } else if (currentStage === 2) {
+                        bonusHP += 50; bonusMP += 50;
+                        equipmentUnlocked = 1;
+                        if (maxUnlockedStage < 3) maxUnlockedStage = 3;
                     }
                     stageCleared[currentStage] = 1;
                     saveProgress();
@@ -987,23 +1418,20 @@ function checkLevelClear() {
 }
 
 /* ============================================================
- *                        渲染 - 游戏内
+ *                        渲染
  * ============================================================ */
 function drawBackground() {
-    for (var y=2;y<11;y++)
-        for (var x=0;x<SW;x++)
-            if ((x * 37 + y * 91) % 73 === 0) {
-                buf[y][x] = '.'; col[y][x] = 8;
-            }
-
-    for (var x2=0;x2<SW;x2++) {
+    for (var y = 2; y < 11; y++)
+        for (var x = 0; x < SW; x++)
+            if ((x * 37 + y * 91) % 73 === 0) { buf[y][x] = '.'; col[y][x] = 8; }
+    for (var x2 = 0; x2 < SW; x2++) {
         var wx = camX * 0.40 + x2;
         var h = Math.floor(11.0 + 3.5 * Math.sin(wx*0.045) + 2.0 * Math.sin(wx*0.110 + 1.3));
         if (h >= 0 && h < GROUND_Y) { buf[h][x2] = '^'; col[h][x2] = 8; }
     }
-    for (var x3=0;x3<SW;x3++) { buf[GROUND_Y + 1][x3] = '='; col[GROUND_Y + 1][x3] = 9; }
-    for (var y2=GROUND_Y + 2;y2<SH;y2++)
-        for (var x4=0;x4<SW;x4++) {
+    for (var x3 = 0; x3 < SW; x3++) { buf[GROUND_Y + 1][x3] = '='; col[GROUND_Y + 1][x3] = 9; }
+    for (var y2 = GROUND_Y + 2; y2 < SH; y2++)
+        for (var x4 = 0; x4 < SW; x4++) {
             buf[y2][x4] = ((x4 + y2) % 7 === 0) ? '#' : '.';
             col[y2][x4] = 8;
         }
@@ -1022,29 +1450,60 @@ function drawPlayer() {
     else { bodyCol = 9; headChar = 'P'; }
 
     if (flash) bodyCol = 1;
-    if (pl.invulnTimer > 0) bodyCol = 6;
+    if (pl.invulnTimer > 0 && pl.spikeballTimer === 0 && pl.skillICombo === 0) bodyCol = 6;
     if (pl.chargeTimer > 0) bodyCol = 6;
 
-    if (pl.chargeTimer > 0) {
-        var r = 2 + Math.floor(pl.chargeTimer * 4 / CHARGE_MAX);
+    /* 八戒刺球形态 */
+    if (pl.spikeballTimer > 0) {
+        var r = 3;
         var baseY = sy - 2;
-        for (i=-r;i<=r;i++) {
-            var xx = sx + i;
-            var dy = Math.floor(Math.sqrt(Math.max(0, r*r - i*i)) * 0.5);
-            if (xx < 0 || xx >= SW) continue;
+        for (i = -r; i <= r; i++) {
+            var x = sx + i;
+            var dy = Math.floor(Math.sqrt(Math.max(0, r*r - i*i)) * 0.7);
+            if (x < 0 || x >= SW) continue;
             if (baseY - dy >= 0 && baseY - dy < SH) {
-                buf[baseY - dy][xx] = '*';
-                col[baseY - dy][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
+                buf[baseY - dy][x] = '*';
+                col[baseY - dy][x] = (frame % 6 < 3) ? 1 : 9;
             }
             if (baseY + dy >= 0 && baseY + dy < SH) {
-                buf[baseY + dy][xx] = '*';
-                col[baseY + dy][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
+                buf[baseY + dy][x] = '*';
+                col[baseY + dy][x] = (frame % 6 < 3) ? 1 : 9;
+            }
+        }
+        putc2(sx - 1, sy - 2, '<', 1);
+        putc2(sx,     sy - 2, 'O', 1);
+        putc2(sx + 1, sy - 2, '>', 1);
+        putc2(sx,     sy - 1, '|', 9);
+        putc2(sx - 1, sy - 1, '*', 1);
+        putc2(sx + 1, sy - 1, '*', 1);
+        var barw = 10;
+        var filled = Math.floor(pl.spikeballTimer / 150 * barw);
+        for (i = 0; i < barw; i++) {
+            putc2(sx - 5 + i, sy - 5, (i < filled) ? '=' : '-', 9);
+        }
+        return;
+    }
+
+    if (pl.chargeTimer > 0) {
+        var r2 = 2 + Math.floor(pl.chargeTimer * 4 / CHARGE_MAX);
+        var baseY2 = sy - 2;
+        for (i = -r2; i <= r2; i++) {
+            var xx = sx + i;
+            var dy2 = Math.floor(Math.sqrt(Math.max(0, r2*r2 - i*i)) * 0.5);
+            if (xx < 0 || xx >= SW) continue;
+            if (baseY2 - dy2 >= 0 && baseY2 - dy2 < SH) {
+                buf[baseY2 - dy2][xx] = '*';
+                col[baseY2 - dy2][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
+            }
+            if (baseY2 + dy2 >= 0 && baseY2 + dy2 < SH) {
+                buf[baseY2 + dy2][xx] = '*';
+                col[baseY2 + dy2][xx] = (pl.chargeTimer >= CHARGE_MAX - 5) ? 1 : 6;
             }
         }
     }
 
     if (pl.dashTimer > 0) {
-        for (i=1;i<=3;i++) {
+        for (i = 1; i <= 3; i++) {
             var gx = sx - Math.floor(pl.dashVx * i * 1.4);
             putc2(gx, sy - 1, '~', 6);
             putc2(gx, sy - 2, '~', 4);
@@ -1093,11 +1552,10 @@ function drawPlayer() {
                 putc2(sx + dd*3, sy - 1, '|', 9);
                 putc2(sx + dd*4, sy,     '/', 9);
             } else {
-                var j;
-                for (j=-3;j<=3;j++) {
-                    if (j === 0) continue;
-                    putc2(sx + j, sy - 2, '-', 3);
-                    putc2(sx + j, sy,     '-', 3);
+                for (var jj = -3; jj <= 3; jj++) {
+                    if (jj === 0) continue;
+                    putc2(sx + jj, sy - 2, '-', 3);
+                    putc2(sx + jj, sy,     '-', 3);
                 }
                 putc2(sx - 3, sy - 1, '#', 1);
                 putc2(sx + 3, sy - 1, '#', 1);
@@ -1105,18 +1563,16 @@ function drawPlayer() {
         }
     }
 
-    if (pl.skillIFlash > 0) {
-        var t2, r2;
-        var baseY2 = sy - 2;
-        if (pl.charType === CHAR_BAJIE) t2 = 28 - pl.skillIFlash;
-        else t2 = 24 - pl.skillIFlash;
-        r2 = t2;
-        for (i=-r2;i<=r2;i++) {
-            var xx2 = sx + i;
-            var dy2 = Math.floor(Math.sqrt(Math.max(0, r2*r2 - i*i)) * 0.55);
-            if (xx2 < 0 || xx2 >= SW) continue;
-            if (baseY2 - dy2 >= 0 && baseY2 - dy2 < SH) { buf[baseY2 - dy2][xx2] = '*'; col[baseY2 - dy2][xx2] = 3; }
-            if (baseY2 + dy2 >= 0 && baseY2 + dy2 < SH) { buf[baseY2 + dy2][xx2] = '*'; col[baseY2 + dy2][xx2] = 1; }
+    if (pl.skillIFlash > 0 && pl.skillICombo > 0) {
+        var t = 12 - pl.skillIFlash;
+        var r3 = t * 2;
+        var baseY3 = sy - 2;
+        for (i = -r3; i <= r3; i++) {
+            var x3 = sx + i;
+            var dy3 = Math.floor(Math.sqrt(Math.max(0, r3*r3 - i*i)) * 0.5);
+            if (x3 < 0 || x3 >= SW) continue;
+            if (baseY3 - dy3 >= 0 && baseY3 - dy3 < SH) { buf[baseY3 - dy3][x3] = '*'; col[baseY3 - dy3][x3] = 3; }
+            if (baseY3 + dy3 >= 0 && baseY3 + dy3 < SH) { buf[baseY3 + dy3][x3] = '*'; col[baseY3 + dy3][x3] = 1; }
         }
     }
 
@@ -1133,8 +1589,8 @@ function drawEnemy(e) {
     var head;
 
     switch(e.type) {
-        case 0: c=2; head='o'; barw=5; break;
-        case 1: c=1; head='O'; barw=6; break;
+        case 0: c=2; head='o'; barw=5;  break;
+        case 1: c=1; head='O'; barw=6;  break;
         case 2: c=5; head='X'; barw=10; break;
         case 3: c=1; head='R'; barw=11; break;
         case 4: c=6; head='F'; barw=12; break;
@@ -1142,6 +1598,10 @@ function drawEnemy(e) {
         case 6: c=3; head='G'; barw=11; break;
         case 7: c=7; head='S'; barw=11; break;
         case 8: c=5; head='Z'; barw=16; break;
+        case 9: c=6; head='w'; barw=11; break;
+        case 10:c=7; head='Y'; barw=13; break;
+        case 11:c=9; head='J'; barw=13; break;
+        case 12:c=3; head='T'; barw=18; break;
         default: c=2; head='o'; barw=5; break;
     }
     if (e.hurtTimer > 0) c = 7;
@@ -1173,7 +1633,7 @@ function drawEnemy(e) {
 
     filled = Math.floor(e.hp / e.maxhp * barw + 0.5);
     by = sy - (e.type >= 3 ? 4 : 3);
-    for (var i=0;i<barw;i++) {
+    for (var i = 0; i < barw; i++) {
         var bx = sx - Math.floor(barw/2) + i;
         putc2(bx, by, (i < filled) ? '=' : '-', (i < filled) ? 1 : 8);
     }
@@ -1181,7 +1641,7 @@ function drawEnemy(e) {
 }
 
 function drawProjs() {
-    for (var i=0;i<projs.length;i++) {
+    for (var i = 0; i < projs.length; i++) {
         var p = projs[i];
         if (!p.alive) continue;
         var sx = Math.floor(p.x - camX);
@@ -1196,33 +1656,44 @@ function drawProjs() {
 }
 
 function drawBar(x, y, w, cur, max, color, label) {
-    var tmp;
     drawText(x, y, label, 7);
     x += 4;
     var filled = Math.floor(cur / max * w + 0.5);
     if (filled < 0) filled = 0;
     if (filled > w) filled = w;
-    for (var i=0;i<w;i++) {
+    for (var i = 0; i < w; i++) {
         if (i < filled) { buf[y][x + i] = '|'; col[y][x + i] = color; }
         else { buf[y][x + i] = '.'; col[y][x + i] = 8; }
     }
-    tmp = " " + cur + "/" + max;
+    var tmp = " " + cur + "/" + max;
     drawText(x + w + 1, y, tmp, 7);
 }
 
 function drawHUD() {
     var tmp;
-    var sx;
+    var sx, pos;
 
-    drawBar(2, 0, 18, pl.hp, pl.maxhp, 1, "HP");
-    drawBar(2, 1, 18, pl.mp, pl.maxmp, 4, "MP");
+    drawBar(2, 0, 16, pl.hp, pl.maxhp, 1, "HP");
+    drawBar(2, 1, 16, pl.mp, pl.maxmp, 4, "MP");
 
-    sx = 36;
+    if (pl.hasArmor) {
+        var barw = 16, filled2 = Math.floor(pl.shield / pl.shieldMax * barw + 0.5);
+        drawText(2, 2, "SH", 6);
+        for (var i = 0; i < barw; i++) {
+            if (i < filled2) { buf[2][6 + i] = '|'; col[2][6 + i] = 6; }
+            else { buf[2][6 + i] = '.'; col[2][6 + i] = 8; }
+        }
+        tmp = " " + Math.floor(pl.shield) + "/" + Math.floor(pl.shieldMax);
+        drawText(6 + barw + 1, 2, tmp, 7);
+    }
+
+    sx = 32;
     if (pl.skillCd > 0) { tmp = "K:" + (pl.skillCd < 10 ? " " : "") + pl.skillCd; drawText(sx, 1, tmp, 8); }
     else {
         var kname = "K:FIRE";
         if (pl.charType === CHAR_SHAWUJING) kname = "K:3SHOT";
         else if (pl.charType === CHAR_BAJIE) kname = "K:RAKE";
+        else kname = "K:SWING";
         drawText(sx, 1, kname, 6);
     }
     sx += 9;
@@ -1243,47 +1714,64 @@ function drawHUD() {
         if (pl.skillICD > 0) { tmp = "I:" + (pl.skillICD < 10 ? " " : "") + pl.skillICD; drawText(sx, 1, tmp, 8); }
         else {
             var iname = "I:RAGE";
-            if (pl.charType === CHAR_BAJIE) iname = "I:QUAKE";
+            if (pl.charType === CHAR_BAJIE) iname = "I:BALL";
+            else iname = "I:LOCK5";
             drawText(sx, 1, iname, 6);
         }
     }
 
-    var pos = level - STAGE_BASE[currentStage];
-    tmp = "STAGE " + (currentStage + 1) + "  LV " + (pos + 1) + "/" + STAGE_LEN[currentStage];
-    drawText(70, 0, tmp, 7);
+    pos = level - STAGE_BASE[currentStage];
+    tmp = "CH." + (currentStage + 1) + " LV" + (pos + 1) + "/" + STAGE_LEN[currentStage];
+    drawText(72, 0, tmp, 7);
     tmp = "SCORE " + pl.score;
-    drawText(70, 1, tmp, 3);
+    drawText(72, 1, tmp, 3);
     tmp = "BUFF x" + pl.buffCount;
-    drawText(70, 2, tmp, 5);
+    drawText(72, 2, tmp, 5);
+
+    if (equipmentUnlocked) {
+        drawText(72, 3, "W:+3 A:30 T:+5%", 6);
+    }
 
     if (pl.comboStep > 0 && pl.comboTimer > 0) {
         tmp = "COMBO x" + pl.comboStep;
-        drawText(2, 2, tmp, 3);
-        for (sx = 0; sx < Math.floor(pl.comboTimer/3); sx++) putc2(13 + sx, 2, '|', 3);
+        drawText(2, 4, tmp, 3);
+        for (sx = 0; sx < Math.floor(pl.comboTimer/3); sx++) putc2(13 + sx, 4, '|', 3);
+    }
+
+    if (pl.skillICombo > 0) {
+        tmp = "LOCK-ON x" + pl.skillICombo;
+        drawText(2, 5, tmp, 1);
     }
 
     if (pl.critChance > 0) {
         tmp = "CRIT " + pl.critChance + "%";
-        drawText(2, 3, tmp, 5);
+        drawText(2, 6, tmp, 5);
     }
 
     if (levelCleared && levelClearTimer > 0)
         drawText(Math.floor(SW/2) - 6, 8, "LEVEL CLEAR!", 3);
+
+    if (currentStage === 3 && (level - STAGE_BASE[3]) === STAGE3_LEN - 1) {
+        if (finalBossPhase === 1) {
+            drawText(Math.floor(SW/2) - 10, 6, "!! SECOND WAVE !!", 1);
+        } else if (finalBossPhase === 2) {
+            drawText(Math.floor(SW/2) - 12, 6, "-- TAISHANG LAOJUN --", 3);
+        }
+    }
 }
 
 function renderGame() {
-    for (var y=0;y<SH;y++)
-        for (var x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    for (var y = 0; y < SH; y++)
+        for (var x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
     drawBackground();
     drawProjs();
-    for (var i=0;i<enemies.length;i++) if (enemies[i].alive) drawEnemy(enemies[i]);
+    for (var i = 0; i < enemies.length; i++)
+        if (enemies[i].alive) drawEnemy(enemies[i]);
     drawPlayer();
     drawHUD();
 }
 
-/* ============================================================
- *                        界面渲染
- * ============================================================ */
+/* 角色选择 */
 function renderCharSel() {
     var CW = 28, CH = 14, GAP = 3;
     var totalW = CW * 3 + GAP * 2;
@@ -1291,13 +1779,13 @@ function renderCharSel() {
     var startY = 5;
     var y, x, i, k;
 
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
 
     drawBackground();
     drawText(Math.floor(SW/2) - 8, 2, "CHOOSE YOUR HERO", 3);
 
-    for (i=0;i<3;i++) {
+    for (i = 0; i < 3; i++) {
         var cx = startX + i * (CW + GAP);
         var cy = startY;
         var selected = (i === charSel);
@@ -1305,11 +1793,11 @@ function renderCharSel() {
         var ncolor = selected ? 3 : 7;
         var dcolor = selected ? 6 : 8;
 
-        for (k=0;k<CW;k++) {
+        for (k = 0; k < CW; k++) {
             putc2(cx + k, cy, '-', bcolor);
             putc2(cx + k, cy + CH - 1, '-', bcolor);
         }
-        for (k=0;k<CH;k++) {
+        for (k = 0; k < CH; k++) {
             putc2(cx, cy + k, '|', bcolor);
             putc2(cx + CW - 1, cy + k, '|', bcolor);
         }
@@ -1322,10 +1810,10 @@ function renderCharSel() {
             drawText(cx + 2, cy + 2, "WU KONG", ncolor);
             drawText(cx + 2, cy + 4, "MELEE / MOBILE", dcolor);
             drawText(cx + 2, cy + 6, "J: 3-HIT COMBO", dcolor);
-            drawText(cx + 2, cy + 7, "K: TRIPLE FIREBALL", dcolor);
-            drawText(cx + 2, cy + 8, "U: CLOUD DASH +STUN", dcolor);
-            drawText(cx + 2, cy + 9, "I: HEAVEN RAGE +STUN", dcolor);
-            drawText(cx + 2, cy + 11, "FAST / STUN", 8);
+            drawText(cx + 2, cy + 7, "K: STAFF SWING", dcolor);
+            drawText(cx + 2, cy + 8, "U: LONG DASH +STUN", dcolor);
+            drawText(cx + 2, cy + 9, "I: LOCK 5-HIT BURST", dcolor);
+            drawText(cx + 2, cy + 11, "FAST / STUN / BURST", 8);
         } else if (i === 1) {
             drawText(cx + 2, cy + 2, "SHA WUJING", ncolor);
             drawText(cx + 2, cy + 4, "BOW / RANGED", dcolor);
@@ -1340,8 +1828,8 @@ function renderCharSel() {
             drawText(cx + 2, cy + 6, "J: 3-HIT + 360 SPIN", dcolor);
             drawText(cx + 2, cy + 7, "K: BOOMERANG RAKE", dcolor);
             drawText(cx + 2, cy + 8, "U: BOAR CHARGE +DR", dcolor);
-            drawText(cx + 2, cy + 9, "I: EARTHQUAKE +STUN", dcolor);
-            drawText(cx + 2, cy + 11, "AOE / STUN / TANK", 8);
+            drawText(cx + 2, cy + 9, "I: SPIKEBALL 5s", dcolor);
+            drawText(cx + 2, cy + 11, "AOE / REFLECT / TANK", 8);
         }
     }
     drawText(Math.floor(SW/2) - 20, 22, "A / D  OR  <- / ->   TO  CHOOSE", 7);
@@ -1349,21 +1837,22 @@ function renderCharSel() {
         drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  CONFIRM", 2);
 }
 
+/* 大关选择 */
 function renderStageSel() {
-    var CW = 28, CH = 12, GAP = 3;
-    var totalW = CW * 3 + GAP * 2;
+    var CW = 22, CH = 12, GAP = 2;
+    var totalW = CW * 4 + GAP * 3;
     var startX = Math.floor((SW - totalW) / 2);
     var startY = 6;
     var tmp;
     var y, x, i, k;
 
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
 
     drawBackground();
     drawText(Math.floor(SW/2) - 8, 2, "CHOOSE A CHAPTER", 3);
 
-    for (i=0;i<3;i++) {
+    for (i = 0; i < 4; i++) {
         var cx = startX + i * (CW + GAP);
         var cy = startY;
         var unlocked = (i <= maxUnlockedStage);
@@ -1373,11 +1862,11 @@ function renderStageSel() {
         var dcolor = unlocked ? (selected ? 6 : 8) : 8;
         var cleared = stageCleared[i];
 
-        for (k=0;k<CW;k++) {
+        for (k = 0; k < CW; k++) {
             putc2(cx + k, cy, '-', bcolor);
             putc2(cx + k, cy + CH - 1, '-', bcolor);
         }
-        for (k=0;k<CH;k++) {
+        for (k = 0; k < CH; k++) {
             putc2(cx, cy + k, '|', bcolor);
             putc2(cx + CW - 1, cy + k, '|', bcolor);
         }
@@ -1386,36 +1875,44 @@ function renderStageSel() {
         putc2(cx, cy + CH - 1, '+', bcolor);
         putc2(cx + CW - 1, cy + CH - 1, '+', bcolor);
 
-        tmp = "CHAPTER " + (i + 1);
+        tmp = "CH." + (i + 1);
         drawText(cx + 2, cy + 1, tmp, ncolor);
 
         if (i === 0) {
-            drawText(cx + 2, cy + 3, "7 LEVELS", dcolor);
-            drawText(cx + 2, cy + 4, "BOSS: WHITE BONE", dcolor);
-            drawText(cx + 2, cy + 6, "REWARD:", 8);
-            drawText(cx + 2, cy + 7, " HP+50 MP+50 ATK+5", 3);
+            drawText(cx + 2, cy + 3, "7 LV", dcolor);
+            drawText(cx + 2, cy + 4, "WHITE BONE", dcolor);
+            drawText(cx + 2, cy + 6, "HP+50", 3);
+            drawText(cx + 2, cy + 7, "MP+50", 3);
+            drawText(cx + 2, cy + 8, "ATK+5", 3);
         } else if (i === 1) {
-            drawText(cx + 2, cy + 3, "21 LEVELS", dcolor);
-            drawText(cx + 2, cy + 4, "RED BOY(7) / FAN(14)", dcolor);
-            drawText(cx + 2, cy + 5, "BULL KING(21)", dcolor);
-            drawText(cx + 2, cy + 7, "REWARD:", 8);
-            drawText(cx + 2, cy + 8, " HP+50 MP+50 ATK+10", 3);
+            drawText(cx + 2, cy + 3, "21 LV", dcolor);
+            drawText(cx + 2, cy + 4, "RED BOY", dcolor);
+            drawText(cx + 2, cy + 5, "IRON FAN", dcolor);
+            drawText(cx + 2, cy + 6, "BULL KING", dcolor);
+            drawText(cx + 2, cy + 8, "ATK+10", 3);
+        } else if (i === 2) {
+            drawText(cx + 2, cy + 3, "14 LV", dcolor);
+            drawText(cx + 2, cy + 4, "2 BOYS", dcolor);
+            drawText(cx + 2, cy + 5, "ZHENYUAN", dcolor);
+            drawText(cx + 2, cy + 7, "+EQUIP", 3);
         } else {
-            drawText(cx + 2, cy + 3, "14 LEVELS", dcolor);
-            drawText(cx + 2, cy + 4, "TWO BOYS(7)", dcolor);
-            drawText(cx + 2, cy + 5, "ZHENYUAN(14, 2 PHASES)", dcolor);
-            drawText(cx + 2, cy + 8, "HONOR & GLORY", 3);
+            drawText(cx + 2, cy + 3, "20 LV", dcolor);
+            drawText(cx + 2, cy + 4, "XIAOZUAN", dcolor);
+            drawText(cx + 2, cy + 5, "SILVER", dcolor);
+            drawText(cx + 2, cy + 6, "GOLD", dcolor);
+            drawText(cx + 2, cy + 7, "LAOJUN", dcolor);
         }
 
-        if (!unlocked) drawText(cx + 2, cy + CH - 2, ">>> LOCKED <<<", 1);
-        else if (cleared) drawText(cx + 2, cy + CH - 2, "[ CLEARED ]", 2);
-        else if (selected) drawText(cx + 2, cy + CH - 2, "[ ENTER ]", 3);
+        if (!unlocked) drawText(cx + 2, cy + CH - 2, "LOCKED", 1);
+        else if (cleared) drawText(cx + 2, cy + CH - 2, "CLEAR", 2);
+        else if (selected) drawText(cx + 2, cy + CH - 2, "ENTER", 3);
     }
     drawText(Math.floor(SW/2) - 20, 22, "A / D  OR  <- / ->   TO  CHOOSE", 7);
     if (Math.floor(frame/15) % 2 === 0)
         drawText(Math.floor(SW/2) - 12, 24, "PRESS  J  TO  ENTER", 2);
 }
 
+/* 增益选择 */
 function renderBuff() {
     var CW = 26, CH = 10, GAP = 3;
     var totalW = CW * 3 + GAP * 2;
@@ -1424,8 +1921,8 @@ function renderBuff() {
     var tmp;
     var y, x, i, k;
 
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
 
     drawBackground();
     drawText(Math.floor(SW/2) - 8, 3, "CHOOSE A BLESSING", 3);
@@ -1433,7 +1930,7 @@ function renderBuff() {
     tmp = "CHAPTER " + (currentStage + 1) + "  LEVEL " + (pos + 1) + " CLEARED";
     drawText(Math.floor(SW/2) - 13, 5, tmp, 6);
 
-    for (i=0;i<3;i++) {
+    for (i = 0; i < 3; i++) {
         var cx = startX + i * (CW + GAP);
         var cy = startY;
         var selected = (i === buffSel);
@@ -1442,11 +1939,11 @@ function renderBuff() {
         var dcolor = selected ? 6 : 8;
         var kcolor = selected ? 2 : 8;
 
-        for (k=0;k<CW;k++) {
+        for (k = 0; k < CW; k++) {
             putc2(cx + k, cy, '-', bcolor);
             putc2(cx + k, cy + CH - 1, '-', bcolor);
         }
-        for (k=0;k<CH;k++) {
+        for (k = 0; k < CH; k++) {
             putc2(cx, cy + k, '|', bcolor);
             putc2(cx + CW - 1, cy + k, '|', bcolor);
         }
@@ -1460,7 +1957,7 @@ function renderBuff() {
         drawText(cx + 1 + Math.floor((CW - 2 - ln)/2), cy + 2, b.name, ncolor);
         var ld = b.desc.length;
         drawText(cx + 1 + Math.floor((CW - 2 - ld)/2), cy + 5, b.desc, dcolor);
-        tmp = "[ " + (i+1) + " ]";
+        tmp = "[ " + (i + 1) + " ]";
         drawText(cx + 1 + Math.floor((CW - 2 - 5)/2), cy + 7, tmp, kcolor);
     }
     drawText(Math.floor(SW/2) - 20, 21, "A / D  OR  <- / ->   TO  CHOOSE", 7);
@@ -1470,22 +1967,24 @@ function renderBuff() {
 
 function renderTitle() {
     var y, x;
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
 
     drawBackground();
+    drawText(Math.floor(SW/2) - 26, 3,  "  ____                       _                   ", 3);
+    drawText(Math.floor(SW/2) - 26, 4,  " |  _ \\ _ __ ___  __ _ _ __ ___    ___  ___     ", 3);
+    drawText(Math.floor(SW/2) - 26, 5,  " | | | | '__/ _ \\/ _` | '_ ` _ \\  / _ \\/ __|    ", 3);
+    drawText(Math.floor(SW/2) - 26, 6,  " | |_| | | |  __/ (_| | | | | | || (_) \\__ \\    ", 3);
+    drawText(Math.floor(SW/2) - 26, 7,  " |____/|_|  \\___|\\__,_|_| |_| |_| \\___/|___/    ", 3);
 
-    drawText(Math.floor(SW/2) - 26, 4,  "  ____                       _                   ", 3);
-    drawText(Math.floor(SW/2) - 26, 5,  " |  _ \\ _ __ ___  __ _ _ __ ___    ___  ___     ", 3);
-    drawText(Math.floor(SW/2) - 26, 6,  " | | | | '__/ _ \\/ _` | '_ ` _ \\  / _ \\/ __|    ", 3);
-    drawText(Math.floor(SW/2) - 26, 7,  " | |_| | | |  __/ (_| | | | | | || (_) \\__ \\    ", 3);
-    drawText(Math.floor(SW/2) - 26, 8,  " |____/|_|  \\___|\\__,_|_| |_| |_| \\___/|___/    ", 3);
+    drawText(Math.floor(SW/2) - 12, 9, "DREAM JOURNEY TO THE WEST", 6);
+    drawText(Math.floor(SW/2) - 22, 10, "3 HEROES - 4 CHAPTERS - 62 LEVELS", 8);
 
-    drawText(Math.floor(SW/2) - 12, 10, "DREAM JOURNEY TO THE WEST", 6);
-    drawText(Math.floor(SW/2) - 20, 11, "3 HEROES - 3 CHAPTERS - 42 LEVELS", 8);
-
-    var ut = "UNLOCKED CHAPTER: " + (maxUnlockedStage + 1) + " / 3";
-    drawText(Math.floor(SW/2) - 12, 13, ut, 5);
+    var tmp = "UNLOCKED CHAPTER: " + (maxUnlockedStage + 1) + " / 4";
+    drawText(Math.floor(SW/2) - 12, 12, tmp, 5);
+    if (equipmentUnlocked) {
+        drawText(Math.floor(SW/2) - 12, 13, "EQUIPMENT: UNLOCKED", 6);
+    }
 
     drawText(Math.floor(SW/2) - 20, 15, "A / D  or  <- / ->   :  MOVE", 7);
     drawText(Math.floor(SW/2) - 20, 16, "W / SPACE / UP       :  JUMP", 7);
@@ -1498,12 +1997,11 @@ function renderTitle() {
 }
 
 function renderOver() {
-    var y, x;
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    var y, x, tmp;
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
     drawBackground();
     drawText(Math.floor(SW/2) - 5, 8, "GAME  OVER", 1);
-    var tmp;
     var pos = level - STAGE_BASE[currentStage];
     tmp = "FINAL SCORE : " + pl.score;
     drawText(Math.floor(SW/2) - 9, 11, tmp, 3);
@@ -1516,46 +2014,56 @@ function renderOver() {
 }
 
 function renderStageClear() {
-    var y, x;
-    var tmp;
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    var y, x, tmp;
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
     drawBackground();
-    drawText(Math.floor(SW/2) - 12, 6, "*** CHAPTER CLEAR ***", 3);
+    drawText(Math.floor(SW/2) - 12, 5, "*** CHAPTER CLEAR ***", 3);
     tmp = "CHAPTER " + (currentStage + 1) + " CLEARED!";
-    drawText(Math.floor(SW/2) - 9, 9, tmp, 6);
+    drawText(Math.floor(SW/2) - 9, 8, tmp, 6);
 
     if (currentStage === 0) {
-        drawText(Math.floor(SW/2) - 18, 12, "PERMANENT REWARD:", 5);
-        drawText(Math.floor(SW/2) - 18, 13, "  MAX HP +50", 2);
-        drawText(Math.floor(SW/2) - 18, 14, "  MAX MP +50", 2);
-        drawText(Math.floor(SW/2) - 18, 15, "  ATTACK +5", 2);
+        drawText(Math.floor(SW/2) - 18, 11, "PERMANENT REWARD:", 5);
+        drawText(Math.floor(SW/2) - 18, 12, "  MAX HP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 13, "  MAX MP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 14, "  ATTACK +5", 2);
     } else if (currentStage === 1) {
-        drawText(Math.floor(SW/2) - 18, 12, "PERMANENT REWARD:", 5);
-        drawText(Math.floor(SW/2) - 18, 13, "  MAX HP +50", 2);
-        drawText(Math.floor(SW/2) - 18, 14, "  MAX MP +50", 2);
-        drawText(Math.floor(SW/2) - 18, 15, "  ATTACK +10", 2);
+        drawText(Math.floor(SW/2) - 18, 11, "PERMANENT REWARD:", 5);
+        drawText(Math.floor(SW/2) - 18, 12, "  MAX HP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 13, "  MAX MP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 14, "  ATTACK +10", 2);
+    } else if (currentStage === 2) {
+        drawText(Math.floor(SW/2) - 18, 10, "PERMANENT REWARD:", 5);
+        drawText(Math.floor(SW/2) - 18, 11, "  MAX HP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 12, "  MAX MP +50", 2);
+        drawText(Math.floor(SW/2) - 18, 13, "  EQUIPMENT UNLOCKED!", 3);
+        drawText(Math.floor(SW/2) - 18, 14, "  WEAPON: +3 ATK", 6);
+        drawText(Math.floor(SW/2) - 18, 15, "  ARMOR : +30 SHIELD", 6);
+        drawText(Math.floor(SW/2) - 18, 16, "  TRINKET: +5% CRIT", 6);
     } else {
-        drawText(Math.floor(SW/2) - 18, 12, "YOU HAVE CONQUERED EVERYTHING!", 3);
-        drawText(Math.floor(SW/2) - 18, 13, "THE JOURNEY TO THE WEST IS COMPLETE.", 6);
+        drawText(Math.floor(SW/2) - 18, 10, "YOU HAVE CONQUERED EVERYTHING!", 3);
+        drawText(Math.floor(SW/2) - 18, 11, "THE JOURNEY TO THE WEST IS COMPLETE.", 6);
+        drawText(Math.floor(SW/2) - 18, 13, "THANK YOU FOR PLAYING!", 5);
     }
-    if (currentStage < 2)
-        drawText(Math.floor(SW/2) - 14, 18, "A NEW CHAPTER IS UNLOCKED!", 3);
+    if (currentStage < 3)
+        drawText(Math.floor(SW/2) - 14, 19, "A NEW CHAPTER IS UNLOCKED!", 3);
     if (Math.floor(frame/15) % 2 === 0)
-        drawText(Math.floor(SW/2) - 14, 22, "PRESS  J  TO  CONTINUE", 7);
+        drawText(Math.floor(SW/2) - 14, 23, "PRESS  J  TO  CONTINUE", 7);
 }
 
 function renderAllWin() {
-    var y, x;
-    for (y=0;y<SH;y++)
-        for (x=0;x<SW;x++) { buf[y][x] = ' '; col[y][x] = 0; }
+    var y, x, tmp;
+    for (y = 0; y < SH; y++)
+        for (x = 0; x < SW; x++) { buf[y][x] = ' '; col[y][x] = 0; }
     drawBackground();
-    drawText(Math.floor(SW/2) - 9, 6, "***  VICTORY  ***", 3);
-    drawText(Math.floor(SW/2) - 22, 9,  "YOU CONQUERED ALL 3 CHAPTERS - 42 LEVELS!", 6);
-    drawText(Math.floor(SW/2) - 22, 10, "WHITE BONE / RED BOY / IRON FAN / BULL KING", 8);
-    drawText(Math.floor(SW/2) - 22, 11, "GOLD BOY / SILVER BOY / ZHENYUAN DAXIAN", 8);
-    var tmp = "FINAL SCORE : " + pl.score;
-    drawText(Math.floor(SW/2) - 9, 14, tmp, 3);
+    drawText(Math.floor(SW/2) - 9, 5, "***  VICTORY  ***", 3);
+    drawText(Math.floor(SW/2) - 22, 8,  "YOU CONQUERED ALL 4 CHAPTERS - 62 LEVELS!", 6);
+    drawText(Math.floor(SW/2) - 22, 9, "WHITE BONE / RED BOY / IRON FAN / BULL KING", 8);
+    drawText(Math.floor(SW/2) - 22, 10, "GOLD BOY / SILVER BOY / ZHENYUAN DAXIAN", 8);
+    drawText(Math.floor(SW/2) - 22, 11, "XIAOZUANFENG / SILVER HORN / GOLD HORN", 8);
+    drawText(Math.floor(SW/2) - 22, 12, "TAISHANG LAOJUN", 5);
+    tmp = "FINAL SCORE : " + pl.score;
+    drawText(Math.floor(SW/2) - 9, 15, tmp, 3);
     if (Math.floor(frame/15) % 2 === 0)
         drawText(Math.floor(SW/2) - 14, 19, "PRESS  J  TO  RETURN", 7);
 }
@@ -1582,7 +2090,7 @@ function update() {
     }
     if (gameState === ST_STAGESEL) {
         if (keyEdge(K_LEFT) && stageSel > 0) stageSel--;
-        if (keyEdge(K_RIGHT) && stageSel < 2) stageSel++;
+        if (keyEdge(K_RIGHT) && stageSel < 3) stageSel++;
         if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
             if (stageSel <= maxUnlockedStage) enterStage(stageSel);
         }
@@ -1594,7 +2102,7 @@ function update() {
     }
     if (gameState === ST_STAGECLEAR) {
         if (keyEdge(K_ATK) || keyEdge(K_JUMP)) {
-            if (currentStage === 2 && stageCleared[2]) gameState = ST_ALLWIN;
+            if (currentStage === 3 && stageCleared[3]) gameState = ST_ALLWIN;
             else { stageSel = 0; gameState = ST_STAGESEL; }
         }
         return;
@@ -1629,18 +2137,30 @@ function render() {
  *                        主循环
  * ============================================================ */
 function adjustFontSize() {
-    var maxW = window.innerWidth - 20;
-    var maxH = window.innerHeight - 20;
-    // 100 列，28 行
-    // 等宽字体宽度约 0.6em，行高设 1.05em
+    var isTouch = window.matchMedia('(pointer: coarse)').matches;
+    var maxW = window.innerWidth - 8;
+    var maxH = window.innerHeight - (isTouch ? window.innerHeight * 0.42 : 20);
+
     var fsW = maxW / (SW * 0.6);
     var fsH = maxH / (SH * 1.05);
     var fs = Math.min(fsW, fsH);
-    if (fs > 22) fs = 22;
-    if (fs < 6) fs = 6;
+
+    var maxFs = isTouch ? 16 : 22;
+    if (fs > maxFs) fs = maxFs;
+    if (fs < 4) fs = 4;
     screenEl.style.fontSize = fs + 'px';
+
+    if (isTouch) {
+        screenEl.style.position = 'absolute';
+        screenEl.style.top = '4px';
+        screenEl.style.left = '50%';
+        screenEl.style.transform = 'translateX(-50%)';
+    }
 }
 window.addEventListener('resize', adjustFontSize);
+window.addEventListener('orientationchange', function(){
+    setTimeout(adjustFontSize, 200);
+});
 adjustFontSize();
 
 loadProgress();
